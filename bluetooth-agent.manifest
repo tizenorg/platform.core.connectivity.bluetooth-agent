@@ -1,0 +1,18 @@
+<manifest>
+    <define>
+        <domain name="bt_agent"/>
+        <provide>
+            <label name="bt_agent::bt_hfp_agent"/>
+            <label name="bt_agent::bt_map_agent"/>
+            <label name="bt_agent::bt_pb_agent"/>
+        </provide>
+    </define>
+    <request>
+        <domain name="_"/>
+    </request>
+    <assign>
+        <filesystem path="/usr/bin/bluetooth-hfp-agent" label="bt_agent::bt_hfp_agent"/>
+        <filesystem path="/usr/bin/bluetooth-map-agent" label="bt_agent::bt_map_agent"/>
+        <filesystem path="/usr/bin/bluetooth-pb-agent" label="bt_agent::bt_pb_agent"/>
+    </assign>
+</manifest>
