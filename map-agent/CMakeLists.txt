@@ -8,7 +8,7 @@ INCLUDE_DIRECTORIES(${CMAKE_CURRENT_SOURCE_DIR})
 INCLUDE(FindPkgConfig)
 pkg_check_modules(pkgs_map_agent
 		REQUIRED
-		dbus-glib-1 dlog msg-service email-service vconf)
+		dbus-glib-1 dlog msg-service tapi vconf)
 
 FOREACH(flag ${pkgs_map_agent_CFLAGS})
 	SET(EXTRA_CFLAGS "${EXTRA_CFLAGS} ${flag}")

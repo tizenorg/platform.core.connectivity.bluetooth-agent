@@ -39,15 +39,9 @@
 #include "msg_transport_types.h"
 #include "msg_types.h"
 
-#ifdef SUPPORT_EMAIL
-/*Email Header Files*/
-#include "email-types.h"
-#include "email-api-init.h"
-#include "email-api-account.h"
-#include "email-api-mailbox.h"
-#include "email-api-mail.h"
-#include "email-api-network.h"
-#endif
+#include <TelSms.h>
+#include <TapiUtility.h>
+#include <ITapiNetText.h>
 
 #include <bluetooth_map_agent.h>
 
@@ -70,6 +64,8 @@
 		G_TYPE_INVALID))
 
 static msg_handle_t g_msg_handle = NULL;
+static TapiHandle *g_tapi_handle = NULL;
+static TelSmsAddressInfo_t *g_sca_info = NULL;
 
 #define BT_MAP_NEW_MESSAGE "NewMessage"
 #define BT_MAP_STATUS_CB "sent status callback"
@@ -107,19 +103,22 @@ static msg_handle_t g_msg_handle = NULL;
 #define LANGUAGE "LANGUAGE:%s\r\n"
 #define LENGTH "LENGTH:%d\r\n"
 #define MSG_BODY "BEGIN:MSG\r\n%s\r\nEND:MSG\r\n"
+#define MSG_BODY_BEGIN "BEGIN:MSG\r\n"
+#define MSG_BODY_END "\r\nEND:MSG\r\n"
 
-/* This has been added for testing purpose, will be removed when SMS APIs
-    are available. */
-#define TEST_PDU "06810000000000040681567777000021017101750261A05"\
-		 "376BA0D8297E5F3B73BCC4ED3F3A030FB1ECECF41613A"\
-		 "5D1E1ED3E7A0B2BD2CCF8362AEA4195407C941ECF77C9"\
-		 "E769F41753968FC769BD3E4B27B5C0691EB6510FD0D7AD"\
-		 "BCBF27B397D46D343A163990E42BFDB6590BCDC4E93D3"\
-		 "E539889E86CF41F437485E26D7C765D0DB5E96DFCBE933"\
-		 "9A1E9A36A72063900AA2BF41B5DBED760385E920E9DC357B35A9"
-
-GSList* id_list = NULL;
+GSList *id_list = NULL;
 guint64 current_push_map_id;
+
+typedef enum {
+	SMS_TON_UNKNOWN = 0,		/* unknown */
+	SMS_TON_INTERNATIONAL = 1,	/* international number */
+	SMS_TON_NATIONAL = 2,		/* national number */
+	SMS_TON_NETWORK_SPECIFIC = 3, /* network specific number */
+	SMS_TON_DEDICATED_ACCESS = 4, /* subscriber number */
+	SMS_TON_ALPHA_NUMERIC = 5,	/* alphanumeric, GSM 7-bit default */
+	SMS_TON_ABBREVIATED_NUMBER = 6, /* abbreviated number */
+	SMS_TON_RESERVED_FOR_EXT = 7 /* reserved for extension */
+} bt_sim_type_of_num_t;
 
 struct id_info {
 	guint64 map_id;
@@ -218,7 +217,8 @@ static gboolean bluetooth_map_noti_registration(BluetoothMapAgent *agent,
 					gchar *remote_addr,
 					gboolean status,
 					DBusGMethodInvocation *context);
-
+static gboolean bluetooth_map_destroy_agent(BluetoothMapAgent *agent,
+					DBusGMethodInvocation *context);
 
 #include "bluetooth_map_agent_glue.h"
 
@@ -265,68 +265,68 @@ static GError *__bt_map_agent_error(bt_map_agent_error_t error,
 
 static guint64 _bt_validate_uid(int uid)
 {
-        DBG("Validate uid");
-        struct id_info *info;
-        int count;
-        int i;
+	DBG("Validate uid");
+	struct id_info *info;
+	int count;
+	int i;
 
-        count = g_slist_length(id_list);
-        for (i = 0; i < count; i++) {
-                info = (struct id_info *)g_slist_nth_data(id_list, i);
+	count = g_slist_length(id_list);
+	for (i = 0; i < count; i++) {
+		info = (struct id_info *)g_slist_nth_data(id_list, i);
 		if (!info)
 			break;
 
-                if (info->uid == uid) {
-                        printf("uid = %d\n", uid);
-                        return info->map_id;
-                }
-        }
+		if (info->uid == uid) {
+			printf("uid = %d\n", uid);
+			return info->map_id;
+		}
+	}
 
-        return 0;
+	return 0;
 }
 
 static guint64 __bt_add_id(int uid)
 {
-        DBG("Add id: %d\n", uid);
-        static guint64 map_id;
-        struct id_info *info;
-        guint64 test;
+	DBG("Add id: %d\n", uid);
+	static guint64 map_id;
+	struct id_info *info;
+	guint64 test;
 
-        test = _bt_validate_uid(uid);
-        DBG("test: %llx\n", test);
-        if (test)
-                return test;
+	test = _bt_validate_uid(uid);
+	DBG("test: %llx\n", test);
+	if (test)
+		return test;
 
-        info = g_new0(struct id_info, 1);
+	info = g_new0(struct id_info, 1);
 
-        map_id++;
+	map_id++;
 
-        info->map_id = map_id;
-        info->uid = uid;
-        DBG("map_id = %llx, uid = %d \n", info->map_id, info->uid);
+	info->map_id = map_id;
+	info->uid = uid;
+	DBG("map_id = %llx, uid = %d \n", info->map_id, info->uid);
 
-        id_list = g_slist_append(id_list, info);
+	id_list = g_slist_append(id_list, info);
 
-        return map_id;
+	return map_id;
 }
 
 static int __bt_get_id(guint64 map_id)
 {
-        DBG("get id\n");
-        struct id_info *info;
-        int count;
+	DBG("get id\n");
+	struct id_info *info;
+	int count;
 	int i;
 
-        count = g_slist_length(id_list);
+	count = g_slist_length(id_list);
 
-        for (i = 0; i < count; i++) {
-                info = (struct id_info *)g_slist_nth_data(id_list, i);
+	for (i = 0; i < count; i++) {
+		info = (struct id_info *)g_slist_nth_data(id_list, i);
 
-                if (info->map_id == map_id)
-                        return info->uid;
-        }
+		if (info->map_id == map_id)
+			return info->uid;
+	}
 
-        return -1;
+	return -1;
 }
 
 static int __bt_get_uid(gchar *handle)
@@ -364,7 +364,7 @@ static int __bt_update_id(guint64 map_id, int new_uid)
 		}
 	}
 
-        return -1;
+	return -1;
 }
 
 static void __bt_remove_list(GSList *id_list)
@@ -372,8 +372,8 @@ static void __bt_remove_list(GSList *id_list)
 	if (!id_list)
 		return;
 
-        DBG("Removing id list\n");
-        g_slist_free_full(id_list, g_free);
+	DBG("Removing id list\n");
+	g_slist_free_full(id_list, g_free);
 }
 
 
@@ -382,24 +382,30 @@ static gchar *__bt_get_folder_name(int id)
 	int ret;
 	char folder_name[BT_MAP_MSG_INFO_MAX] = {0,};
 
-	msg_struct_list_s g_folderList;
+	msg_struct_list_s folder_list = {0,};
 	msg_struct_t p_folder;
 
-	ret = msg_get_folder_list(g_msg_handle, &g_folderList);
+	ret = msg_get_folder_list(g_msg_handle, &folder_list);
 	if (ret != MSG_SUCCESS)
-		goto done;
+		return g_strdup("TELECOM/MSG");
 
-	p_folder = g_folderList.msg_struct_info[id];
+	if (folder_list.msg_struct_info == NULL)
+		return g_strdup("TELECOM/MSG");
+
+	p_folder = folder_list.msg_struct_info[id];
 
 	ret = msg_get_str_value(p_folder, MSG_FOLDER_INFO_NAME_STR,
 					folder_name, BT_MAP_MSG_INFO_MAX);
+
+	if (folder_list.msg_struct_info) {
+		ret = msg_release_list_struct(&folder_list);
+		DBG("Err %d", ret);
+	}
+
 	if (ret != MSG_SUCCESS)
-		goto done;
-
-	return g_strdup_printf("TELECOM/MSG/%s", folder_name);
-
-done:
-	return g_strdup("TELECOM/MSG");
+		return g_strdup("TELECOM/MSG");
+	else
+		return g_strdup_printf("TELECOM/MSG/%s", folder_name);
 }
 
 static void __get_msg_timestamp(time_t *ltime, char *timestamp)
@@ -420,6 +426,233 @@ static void __get_msg_timestamp(time_t *ltime, char *timestamp)
 	return;
 }
 
+#define SET_TON_NPI(dest, ton, npi) {	\
+	dest = 0x80;			\
+	dest |= (ton & 0x07) << 4;	\
+	dest |= npi & 0x0F;		\
+}
+
+static int __bt_ascii_to_upper(int ch)
+{
+	return (('a' <= (ch) && (ch) <= 'z') ? ((ch) - ('a'-'A')) : (ch));
+}
+
+static int __bt_sms_pack_gsm_code(gchar *p_out, const char *data, int in_len)
+{
+	DBG("+");
+	int i;
+	int pos;
+	int shift = 0;
+
+	for (pos = 0, i = 0; i < in_len; pos++, i++) {
+		/* pack the low bits */
+		p_out[pos] = data[i] >> shift;
+
+		if (i + 1 < in_len) {
+			/* pack the high bits using the low bits
+			   of the next character */
+			p_out[pos] |= data[i+1] << (7 - shift);
+
+			shift++;
+
+			if (shift == 7) {
+				shift = 0;
+				i++;
+			}
+		}
+	}
+	DBG("-");
+	return pos;
+}
+
+static void __bt_sms_conv_digit_to_bcd(gchar *p_bcd, char *p_digits, int digit_len)
+{
+	int i;
+	int j;
+	int digit;
+	unsigned char higher;
+	unsigned char lower;
+
+	if (p_bcd == NULL || p_digits == NULL)
+		return;
+
+	/* 0123456789 -> 1032547698 */
+	for (i = 0, j = 0; i < digit_len; i = i + 2, j++) {
+		if (p_digits[i] == '*')
+			digit = 0x0A;
+		else if (p_digits[i] == '#')
+			digit = 0x0B;
+		else if (__bt_ascii_to_upper(p_digits[i]) == 'P')
+			digit = 0x0C;
+		else
+			digit = (int) (p_digits[i] - '0');
+
+		lower = digit & 0x0F;
+
+		if (digit_len != i + 1) {
+			if (p_digits[i+1] == '*')
+				digit = 0x0A;
+			else if (p_digits[i+1] == '#')
+				digit = 0x0B;
+			else if (__bt_ascii_to_upper(p_digits[i+1]) == 'P')
+				digit = 0x0C;
+			else
+				digit = (int) (p_digits[i+1] - '0');
+
+			higher = digit & 0x0F;
+		} else {
+			higher = 0xFF;
+		}
+
+		p_bcd[j] = (higher << 4) | lower;
+	}
+}
+
+static int  __bt_sms_encode_addr(gchar *addr_field, char *dial_num,
+				int dial_num_len, int ton, int npi)
+{
+	DBG("+");
+	int index = 0;
+
+	if (dial_num == NULL || addr_field == NULL)
+		return -1;
+
+	if (dial_num[0] == '+') {
+		dial_num++;
+		dial_num_len--;
+		ton = SMS_TON_INTERNATIONAL;
+	}
+
+	if (ton != SMS_TON_ALPHA_NUMERIC) {
+		/* Origination address length address length */
+		addr_field[index++] = (unsigned char)dial_num_len;
+	} else {
+		addr_field[index] = (unsigned char)
+					(((dial_num_len * 7 + 7) / 8) * 2);
+
+		if (((dial_num_len * 7) % 8) <= 4)
+			addr_field[index]--;
+
+		index++;
+	}
+
+	SET_TON_NPI(addr_field[index], ton, npi);
+	index++; /* SET_TON_NPI */
+
+	if (ton != SMS_TON_ALPHA_NUMERIC) {
+		__bt_sms_conv_digit_to_bcd(&addr_field[index],
+					(char *)dial_num, dial_num_len);
+
+		if (dial_num_len % 2)
+			index += (dial_num_len / 2) + 1;
+		else
+			index += dial_num_len / 2;
+	} else {
+		index += __bt_sms_pack_gsm_code(&addr_field[index],
+						dial_num, (int)dial_num_len);
+	}
+
+	return index;
+}
+
+static int __bt_sms_encode_time(gchar *addr_field, time_t *tm)
+{
+	int index = 0;
+	struct tm ltime;
+	int year;
+	int month;
+
+	if (!localtime_r(tm, &ltime))
+		return index;
+
+	year = ltime.tm_year + 1900; /* years since 1900 */
+	year = year % 100;
+	month = ltime.tm_mon + 1; /* months since January */
+
+	addr_field[index++] = ((year % 10)  << 4) + (year / 10);
+	addr_field[index++] = ((month % 10) << 4) + (month / 10);
+	addr_field[index++] = ((ltime.tm_mday % 10) << 4) +
+							(ltime.tm_mday / 10);
+	addr_field[index++] = ((ltime.tm_hour % 10) << 4) +
+							(ltime.tm_hour / 10);
+	addr_field[index++] = ((ltime.tm_min % 10) << 4) + (ltime.tm_min / 10);
+	addr_field[index++] = ((ltime.tm_sec % 10) << 4) + (ltime.tm_sec / 10);
+	addr_field[index] = 0x00;
+
+	return index;
+}
+
+static gchar *__bt_get_sms_pdu_from_msg_data(gchar *number,
+						char *msg, time_t tm,
+						int *msg_pdu_len)
+{
+	DBG("+");
+	gchar packet[TAPI_NETTEXT_MSG_SIZE_MAX] = {0,};
+	int index = 0;
+
+	packet[index] = 0x00; /* Since SCA is unknown for stored messages */
+	index++;
+
+	/* TP-MTI : Type of message */
+	packet[index] = 0x00;	/* SMS-DELIVER PDU */
+
+	/* TP-MMS bit is set to 1 as we support only SMS */
+	packet[index] |= 0x04;
+	index++;
+
+	/* TP-OA : Mobile originating address */
+	index += __bt_sms_encode_addr(packet+index,
+					number, strlen(number),
+					g_sca_info->Ton, g_sca_info->Npi);
+
+	/* TP-PID : Since we use only SMS so set to 0 */
+	packet[index++] = 0x00;
+
+	/* TP-DCS : Data Coding Scheme, default value set */
+	packet[index++] = 0x00;
+
+	/* TP-SCTS : Message timestamp */
+	index += __bt_sms_encode_time(packet+index, &tm);
+	index++;
+	/* TP-UDL : Message body length */
+	packet[index++] = strlen(msg);
+
+	/* TP-UD : Message body */
+	index += __bt_sms_pack_gsm_code(packet + index, msg, strlen(msg));
+
+	*msg_pdu_len = index;
+	DBG("-");
+
+	return g_memdup(packet, index);
+}
+
+static void __bt_get_sms_sca(TapiHandle *handle, int result, void *data,
+							void *user_data)
+{
+	TelSmsAddressInfo_t *scaInfo = data;
+	unsigned int i = 0;
+
+	DBG("__bt_get_sms_sca 0x%x", result);
+
+	if (data == NULL)
+		return;
+
+	g_sca_info = g_malloc0(sizeof(TelSmsAddressInfo_t));
+	g_sca_info->Ton = scaInfo->Ton;
+	g_sca_info->Npi = scaInfo->Npi;
+	g_sca_info->DialNumLen = scaInfo->DialNumLen;
+
+	DBG(" - TON = %d", scaInfo->Ton);
+	DBG(" - NPI = %d", scaInfo->Npi);
+	DBG(" - DialNumLen = %d", scaInfo->DialNumLen);
+	DBG(" - SCA Num");
+
+	for (i = 0; i < scaInfo->DialNumLen; i++) {
+		g_sca_info->szDiallingNum[i] = scaInfo->szDiallingNum[i];
+		DBG("[%02x]", g_sca_info->szDiallingNum[i]);
+	}
+}
+
 static char *__bt_prepare_msg_bmseg(msg_struct_t msg_info, gboolean attach,
 							gboolean transcode)
 {
@@ -427,14 +660,19 @@ static char *__bt_prepare_msg_bmseg(msg_struct_t msg_info, gboolean attach,
 	int m_type = MSG_TYPE_SMS;
 	int folder_id;
 	int count;
+	int dptime = 0;
+	int j;
 	bool read_status = false;
 	char msg_body[BT_MAP_MSG_BODY_MAX] = {0,};
 	char addr_value[MAX_ADDRESS_VAL_LEN] = {0,};
-	char name_value[MAX_ADDRESS_VAL_LEN] = {0,};
-	gchar *folder_path;
+	char name_value[MAX_DISPLAY_NAME_LEN] = {0,};
 
-	msg_struct_list_s *addr_list = NULL;
+	msg_list_handle_t addr_list = NULL;
+	msg_struct_t addr_info = NULL;
+
 	GString *msg;
+	gchar *folder_path;
+	gchar *msg_pdu;
 
 	msg = g_string_new(BEGIN_BMSEG);
 	g_string_append(msg, BMSEG_VERSION);
@@ -452,38 +690,27 @@ static char *__bt_prepare_msg_bmseg(msg_struct_t msg_info, gboolean attach,
 	ret = msg_get_int_value(msg_info, MSG_MESSAGE_TYPE_INT, &m_type);
 	if (ret == MSG_SUCCESS) {
 		DBG("m_type %d\n", m_type);
-	}
-
-	switch (m_type) {
-	case MSG_TYPE_MMS:
-	case MSG_TYPE_MMS_JAVA:
-	case MSG_TYPE_MMS_NOTI:
-		g_string_append_printf(msg, MSEG_TYPE, "MMS");
-		break;
-
-	default:
 		 g_string_append_printf(msg, MSEG_TYPE, "SMS_GSM");
-		break;
 	}
 
 	ret = msg_get_int_value(msg_info, MSG_MESSAGE_FOLDER_ID_INT,
 							&folder_id);
 	if (ret == MSG_SUCCESS) {
 		DBG("folder_id %d\n", folder_id);
+
+		folder_path = __bt_get_folder_name(folder_id);
+		g_string_append_printf(msg, FOLDER_PATH, folder_path);
 	}
 
-	folder_path = __bt_get_folder_name(folder_id);
-	g_string_append_printf(msg, FOLDER_PATH, folder_path);
-
-
-	ret = msg_get_list_handle(msg_info, MSG_MESSAGE_ADDR_LIST_STRUCT,
-							(void **)&addr_list);
+	ret = msg_get_list_handle(msg_info, MSG_MESSAGE_ADDR_LIST_HND,
+						(void **)&addr_list);
 	if (ret == MSG_SUCCESS) {
-		count = addr_list->nCount;
+		count = msg_list_length(addr_list);
 		DBG("count %d \n", count);
-		while (count > 0) {
-			msg_struct_t addr_info = NULL;
-			addr_info = addr_list->msg_struct_info[count - 1];
+
+		if (count > 0) {
+			addr_info = (msg_struct_t)msg_list_nth_data(addr_list,
+									0);
 
 			msg_get_str_value(addr_info,
 					MSG_ADDRESS_INFO_ADDRESS_VALUE_STR,
@@ -491,7 +718,7 @@ static char *__bt_prepare_msg_bmseg(msg_struct_t msg_info, gboolean attach,
 			DBG("addr_value %s\n", addr_value);
 			msg_get_str_value(addr_info,
 					MSG_ADDRESS_INFO_DISPLAYNAME_STR,
-					name_value, MAX_ADDRESS_VAL_LEN);
+					name_value, MAX_DISPLAY_NAME_LEN);
 			if (!strlen(name_value))
 				g_stpcpy(name_value, addr_value);
 
@@ -499,7 +726,6 @@ static char *__bt_prepare_msg_bmseg(msg_struct_t msg_info, gboolean attach,
 
 			g_string_append_printf(msg, VCARD, name_value,
 								addr_value);
-			count--;
 		}
 	}
 
@@ -509,29 +735,39 @@ static char *__bt_prepare_msg_bmseg(msg_struct_t msg_info, gboolean attach,
 	if (transcode) {
 		g_string_append_printf(msg, CHARSET, "UTF-8");
 
-		if (m_type == MSG_TYPE_MMS)
-			ret = msg_get_str_value(msg_info,
-						MSG_MESSAGE_MMS_TEXT_STR,
-						msg_body, BT_MAP_SUBJECT_MAX_LEN);
-		else
-			ret = msg_get_str_value(msg_info,
-						MSG_MESSAGE_SMS_DATA_STR,
-						msg_body, BT_MAP_MSG_BODY_MAX);
 
+		ret = msg_get_str_value(msg_info,
+					MSG_MESSAGE_SMS_DATA_STR,
+					msg_body, BT_MAP_MSG_BODY_MAX);
 		if (ret == MSG_SUCCESS) {
 			g_string_append_printf(msg, LENGTH, strlen(msg_body));
 			g_string_append_printf(msg, MSG_BODY, msg_body);
 		}
 	} else {
-		gchar *msg_pdu;
 		g_string_append_printf(msg, ENCODING, "G-7BIT");
 		g_string_append_printf(msg, CHARSET, "native");
-		/* The below line has been added for testing purpose,
-		    will be removed when SMS APIs are available. */
-		msg_pdu = g_strdup(TEST_PDU);
-		g_string_append_printf(msg, LENGTH, strlen(msg_pdu));
-		g_string_append_printf(msg, MSG_BODY, msg_pdu);
-		g_free(msg_pdu);
+
+		msg_get_int_value(msg_info,
+				MSG_MESSAGE_DISPLAY_TIME_INT, &dptime);
+
+		ret = msg_get_str_value(msg_info, MSG_MESSAGE_SMS_DATA_STR,
+					msg_body, BT_MAP_MSG_BODY_MAX);
+		if (ret == MSG_SUCCESS) {
+			int msg_pdu_len = 0;
+			msg_pdu = __bt_get_sms_pdu_from_msg_data(addr_value,
+							msg_body, dptime,
+							&msg_pdu_len);
+			DBG("msg_pdu_len = %d", msg_pdu_len);
+
+			g_string_append_printf(msg, LENGTH, msg_pdu_len);
+			g_string_append(msg, MSG_BODY_BEGIN);
+			for (j = 0; j < msg_pdu_len; j++)
+				g_string_append_printf(msg, "%02x",
+								msg_pdu[j]);
+
+			g_string_append(msg, MSG_BODY_END);
+			g_free(msg_pdu);
+		}
 	}
 
 	g_string_append(msg, END_BBODY);
@@ -568,6 +804,7 @@ static struct message_info __bt_message_info_get(msg_struct_t msg_struct_handle)
 	int data_size;
 	int priority;
 	int direction_type;
+	int count;
 	bool protect_status = 0;
 	bool read_status = 0;
 
@@ -577,7 +814,7 @@ static struct message_info __bt_message_info_get(msg_struct_t msg_struct_handle)
 	char msg_size[5] = {0,};
 	char msg_body[BT_MAP_MSG_BODY_MAX] = {0,};
 	char addr_value[MAX_ADDRESS_VAL_LEN] = {0,};
-	char name_value[MAX_ADDRESS_VAL_LEN] = {0,};
+	char name_value[MAX_DISPLAY_NAME_LEN] = {0,};
 
 	msg_info.text = FALSE;
 	msg_info.protect = FALSE;
@@ -586,7 +823,7 @@ static struct message_info __bt_message_info_get(msg_struct_t msg_struct_handle)
 
 	msg_struct_t msg = NULL;
 	msg_struct_t send_opt = NULL;
-	msg_struct_list_s *addr_list = NULL;
+	msg_list_handle_t addr_list = NULL;
 	msg_struct_t addr_info = NULL;
 
 	ret = msg_get_int_value(msg_struct_handle, MSG_MESSAGE_ID_INT, &msg_id);
@@ -607,31 +844,39 @@ static struct message_info __bt_message_info_get(msg_struct_t msg_struct_handle)
 		goto next;
 	}
 
-	ret = msg_get_list_handle(msg, MSG_MESSAGE_ADDR_LIST_STRUCT,
+	ret = msg_get_list_handle(msg, MSG_MESSAGE_ADDR_LIST_HND,
 							(void **)&addr_list);
 	if (ret != MSG_SUCCESS) {
 		DBG("ret = %d\n", ret);
 		goto next;
 	}
 
-	addr_info = addr_list->msg_struct_info[0];
+	count = msg_list_length(addr_list);
 
-	ret = msg_get_str_value(addr_info, MSG_ADDRESS_INFO_ADDRESS_VALUE_STR,
-				addr_value, MAX_ADDRESS_VAL_LEN);
-	if (ret == MSG_SUCCESS)
-		DBG("addr_value %s\n", addr_value);
+	if (count != 0) {
+		addr_info = (msg_struct_t)msg_list_nth_data(addr_list, 0);
 
-	ret = msg_get_str_value(addr_info, MSG_ADDRESS_INFO_DISPLAYNAME_STR,
-			name_value, MAX_ADDRESS_VAL_LEN);
-	if (ret == MSG_SUCCESS)
+		ret = msg_get_str_value(addr_info,
+					MSG_ADDRESS_INFO_ADDRESS_VALUE_STR,
+					addr_value, MAX_ADDRESS_VAL_LEN);
+		if (ret == MSG_SUCCESS)
+			DBG("addr_value %s\n", addr_value);
+
+		ret = msg_get_str_value(addr_info,
+					MSG_ADDRESS_INFO_DISPLAYNAME_STR,
+					name_value, MAX_DISPLAY_NAME_LEN);
+
+		if (ret == MSG_SUCCESS)
+			DBG("name_value %s\n", name_value);
+
+		if (!strlen(name_value))
+			g_stpcpy(name_value, addr_value);
+
 		DBG("name_value %s\n", name_value);
+	}
 
-	if (!strlen(name_value))
-		g_stpcpy(name_value, addr_value);
-
-	DBG("name_value %s\n", name_value);
-
-	ret = msg_get_int_value(msg, MSG_MESSAGE_DIRECTION_INT, &direction_type);
+	ret = msg_get_int_value(msg, MSG_MESSAGE_DIRECTION_INT,
+						&direction_type);
 	if (ret != MSG_SUCCESS)
 		goto next;
 
@@ -651,7 +896,8 @@ next:
 	msg_release_struct(&msg);
 	msg_release_struct(&send_opt);
 
-	ret = msg_get_int_value(msg_struct_handle, MSG_MESSAGE_DISPLAY_TIME_INT, &dptime);
+	ret = msg_get_int_value(msg_struct_handle,
+				MSG_MESSAGE_DISPLAY_TIME_INT, &dptime);
 	if (ret == MSG_SUCCESS) {
 		__get_msg_timestamp((time_t *)&dptime, msg_datetime);
 	}
@@ -811,10 +1057,6 @@ static gboolean __bluetooth_map_start_service()
 {
 	msg_error_t err = MSG_SUCCESS;
 	gboolean msg_ret = TRUE;
-#ifdef SUPPORT_EMAIL
-	int email_err = EMAIL_ERROR_NONE;
-	gboolean email_ret = TRUE;
-#endif
 
 	err = msg_open_msg_handle(&g_msg_handle);
 	if (err != MSG_SUCCESS) {
@@ -832,25 +1074,7 @@ static gboolean __bluetooth_map_start_service()
 	}
 
 done:
-
-#ifdef SUPPORT_EMAIL
-
-	email_err = email_service_begin();
-	if (email_err != EMAIL_ERROR_NONE) {
-		ERR("email_service_begin fail  error = %d\n", email_err);
-		email_ret = FALSE;
-	}
-
-	if (msg_ret || email_ret)
-		return TRUE;
-	else
-		return FALSE;
-
-#else
-
 	return msg_ret;
-
-#endif
 }
 
 static void __bluetooth_map_stop_service()
@@ -860,131 +1084,69 @@ static void __bluetooth_map_stop_service()
 
 	g_msg_handle = NULL;
 
-#ifdef SUPPORT_EMAIL
-	if (EMAIL_ERROR_NONE != email_service_end())
-		ERR("email_service_end fail \n");
-#endif
 	return;
 }
 
-#ifdef SUPPORT_EMAIL
-static int __bt_store_mail(email_mailbox_type_e type, char *subject,
-						char *body, char *recepients)
+static gboolean __bt_convert_to_utf8(char **text)
 {
-	int account_id;
-	int mail_id;
-	int err;
-	char from_address[BT_MAIL_ID_MAX_LENGTH] = { 0, };
-	FILE *body_file;
-	struct stat st_buf;
+	char *utf8;
+	gsize len;
 
-	email_account_t *account_data = NULL;
-	email_mailbox_t *mailbox_data = NULL;
-	email_mail_data_t *mail_data = NULL;
+	if (g_utf8_validate(*text, -1, NULL))
+		return TRUE;
 
-	err = email_load_default_account_id(&account_id);
-	if (EMAIL_ERROR_NONE != err)
-		goto fail;
+	utf8 = g_convert(*text, -1, "UTF-8", "ISO-8859-1", 0, &len, NULL);
+	if (!utf8)
+		return FALSE;
 
-	err = email_get_account(account_id, GET_FULL_DATA_WITHOUT_PASSWORD,
-								&account_data);
-	if (EMAIL_ERROR_NONE != err)
-		goto fail;
+	DBG("conversion done %d\n", len);
+	g_free(*text);
+	*text = utf8;
 
-	err = email_get_mailbox_by_mailbox_type(account_id, type,
-								&mailbox_data);
-	if (EMAIL_ERROR_NONE != err)
-		goto fail;
-
-	snprintf(from_address, BT_MAIL_ID_MAX_LENGTH, "<%s>",
-					account_data->user_email_address);
-	email_free_account(&account_data, 1);
-
-	mail_data = calloc(1, sizeof(email_mail_data_t));
-	if (NULL == mail_data) {
-		email_free_mailbox(&mailbox_data, 1);
-		goto fail;
-	}
-
-	DBG("\n account_id %d\n", account_id);
-	mail_data->account_id = account_id;
-	mail_data->save_status = 1;
-	mail_data->body_download_status = 1;
-	/* mail_data->flags_draft_field = 1; */
-	mail_data->flags_seen_field = 1;
-	mail_data->file_path_plain = g_strdup(BT_MAIL_TEMP_BODY);
-
-	mail_data->mailbox_id = mailbox_data->mailbox_id;
-	mail_data->mailbox_type = mailbox_data->mailbox_type;
-	email_free_mailbox(&mailbox_data, 1);
-
-	mail_data->full_address_from = g_strdup(from_address);
-	mail_data->full_address_to = g_strdup(recepients);
-	mail_data->subject = g_strdup(subject);
-	mail_data->report_status = EMAIL_MAIL_REQUEST_DSN |
-							EMAIL_MAIL_REQUEST_MDN;
-
-	body_file = fopen(BT_MAIL_TEMP_BODY, "w");
-	if (body_file == NULL) {
-		DBG("\n fopen [%s]failed\n", BT_MAIL_TEMP_BODY);
-		email_free_mail_data(&mail_data, 1);
-		goto fail;
-	}
-
-	fprintf(body_file, body);
-	fflush(body_file);
-	fclose(body_file);
-
-	err = email_add_mail(mail_data, NULL, 0, NULL, 0);
-	if (err != EMAIL_ERROR_NONE) {
-		DBG("email_add_mail failed. [%d]\n", err);
-		if (!stat(mail_data->file_path_plain, &st_buf))
-			remove(mail_data->file_path_plain);
-
-		email_free_mail_data(&mail_data, 1);
-		goto fail;
-	}
-
-	DBG("saved mail id = [%d]\n", mail_data->mail_id);
-
-	mail_id = mail_data->mail_id;
-
-	email_free_mail_data(&mail_data, 1);
-
-	return mail_id;
-
-fail:
-	return 0;
+	return TRUE;
 }
 
-static int __bt_email_send(char *subject, char *body, char* recepients)
+static gboolean __bt_convert_msg_data(struct message_info *msg_info)
 {
-	int err;
-	int mail_id;
-	int handle;
+	if (msg_info == NULL)
+		return FALSE;
 
-	mail_id = __bt_store_mail(EMAIL_MAILBOX_TYPE_OUTBOX, subject,
-							body, recepients);
-	if (mail_id) {
-		DBG("mail_id = %d\n", mail_id);
-		err = email_send_mail(mail_id, &handle);
-		if (err != EMAIL_ERROR_NONE)
-			DBG("Sending failed[%d]\n", err);
-	}
+	if (msg_info->subject)
+		if (!__bt_convert_to_utf8(&msg_info->subject))
+			return FALSE;
 
-	return mail_id;
+	if (msg_info->sender_name)
+		if (!__bt_convert_to_utf8(&msg_info->sender_name))
+			return FALSE;
+
+	if (msg_info->sender_addressing)
+		if (!__bt_convert_to_utf8(&msg_info->sender_addressing))
+			return FALSE;
+
+	if (msg_info->replyto_addressing)
+		if (!__bt_convert_to_utf8(&msg_info->replyto_addressing))
+			return FALSE;
+
+	if (msg_info->recipient_name)
+		if (!__bt_convert_to_utf8(&msg_info->recipient_name))
+			return FALSE;
+
+	if (msg_info->recipient_addressing)
+		if (!__bt_convert_to_utf8(&msg_info->recipient_addressing))
+			return FALSE;
+
+	return TRUE;
 }
-#endif
 
 static int __bt_get_folder_id(char *folder_path)
 {
 	int folder_id = -1;
 	int i;
 	char *folder;
-	msg_struct_list_s folder_list;
+	msg_struct_list_s folder_list = {0,};
 	msg_error_t err;
 	msg_struct_t p_folder;
-	DBG("__bt_get_folder_id\n");
+	DBG("folder_path %s\n", folder_path);
 
 	folder = strrchr(folder_path, '/');
 	if (NULL == folder)
@@ -996,7 +1158,7 @@ static int __bt_get_folder_id(char *folder_path)
 
 	err = msg_get_folder_list(g_msg_handle, &folder_list);
 	if (err != MSG_SUCCESS)
-		return -1;
+		goto done;
 
 	for (i = 0; i < folder_list.nCount; i++) {
 		p_folder = folder_list.msg_struct_info[i];
@@ -1007,15 +1169,23 @@ static int __bt_get_folder_id(char *folder_path)
 		if (err != MSG_SUCCESS)
 			continue;
 
-		DBG("folderName %s\n", folder_name);
+		DBG("folder_name %s\n", folder_name);
 		if (!g_ascii_strncasecmp(folder_name, folder, strlen(folder))) {
-			err = msg_get_int_value(p_folder, MSG_FOLDER_INFO_ID_INT,
-								&folder_id);
+			err = msg_get_int_value(p_folder,
+					MSG_FOLDER_INFO_ID_INT,
+					&folder_id);
 			if (err != MSG_SUCCESS)
-				return -1;
+				goto done;
 
+			DBG("folder_id %d", folder_id);
 			break;
 		}
+	}
+
+done:
+	if (folder_list.msg_struct_info) {
+		err = msg_release_list_struct(&folder_list);
+		DBG("Err%d", err);
 	}
 
 	return folder_id;
@@ -1049,7 +1219,6 @@ static int __bt_push_sms(gboolean send, int folder_id, char *body,
 	DBG("+ \n");
 	msg_struct_t msg_info = NULL;
 	msg_struct_t send_opt = NULL;
-	msg_struct_list_s *addr_list;
 	msg_error_t err;
 
 	int count = 0;
@@ -1066,8 +1235,9 @@ static int __bt_push_sms(gboolean send, int folder_id, char *body,
 		goto fail;
 
 	if (body) {
-		err = msg_set_str_value(msg_info, MSG_MESSAGE_SMS_DATA_STR, body,
-									strlen(body));
+		err = msg_set_str_value(msg_info,
+					MSG_MESSAGE_SMS_DATA_STR,
+					body, strlen(body));
 		if (err != MSG_SUCCESS)
 			goto fail;
 	} else {
@@ -1086,27 +1256,24 @@ static int __bt_push_sms(gboolean send, int folder_id, char *body,
 	if (recepients) {
 		count = g_slist_length(recepients);
 		DBG("Count = %d\n", count);
-		msg_get_list_handle(msg_info, MSG_MESSAGE_ADDR_LIST_STRUCT,
-							(void**)&addr_list);
 
-		addr_list->nCount = count;
 		for (i = 0; i < count; i++) {
+			msg_struct_t tmp_addr;
 			char *address = (char *)g_slist_nth_data(recepients, i);
 			if (address == NULL) {
 				DBG("[ERROR] address is value NULL, skip");
 				continue;
 			}
-			msg_set_int_value(addr_list->msg_struct_info[i],
-					MSG_ADDRESS_INFO_ADDRESS_TYPE_INT,
-					MSG_ADDRESS_TYPE_PLMN);
+			msg_list_add_item(msg_info,
+				MSG_MESSAGE_ADDR_LIST_HND, &tmp_addr);
 
-			msg_set_int_value(addr_list->msg_struct_info[i],
-					MSG_ADDRESS_INFO_RECIPIENT_TYPE_INT,
-					MSG_RECIPIENTS_TYPE_TO);
+			msg_set_int_value(tmp_addr,
+				MSG_ADDRESS_INFO_RECIPIENT_TYPE_INT,
+				MSG_RECIPIENTS_TYPE_TO);
 
-			msg_set_str_value(addr_list->msg_struct_info[i],
-					MSG_ADDRESS_INFO_ADDRESS_VALUE_STR,
-					address, strlen(address));
+			msg_set_str_value(tmp_addr,
+				MSG_ADDRESS_INFO_ADDRESS_VALUE_STR,
+				address, strlen(address));
 		}
 	}
 
@@ -1261,29 +1428,21 @@ static gboolean bluetooth_map_get_folder_tree(BluetoothMapAgent *agent,
 	int ret;
 	gboolean msg_ret = TRUE;
 
-	msg_struct_list_s g_folderList;
+	msg_struct_list_s folder_list = {0,};
 	msg_struct_t p_folder;
-
-#ifdef SUPPORT_EMAIL
-	int j;
-	int account_id = 0;
-	int mailbox_count = 0;
-	gboolean flag = FALSE;
-	email_mailbox_t *mailbox_list = NULL;
-#endif
 
 	if (g_msg_handle == NULL) {
 		msg_ret = FALSE;
 		goto done;
 	}
 
-	if (msg_get_folder_list(g_msg_handle, &g_folderList) != MSG_SUCCESS) {
+	if (msg_get_folder_list(g_msg_handle, &folder_list) != MSG_SUCCESS) {
 		msg_ret = FALSE;
 		goto done;
 	}
 
-	for (i = 0; i < g_folderList.nCount; i++) {
-		p_folder = g_folderList.msg_struct_info[i];
+	for (i = 0; i < folder_list.nCount; i++) {
+		p_folder = folder_list.msg_struct_info[i];
 		memset(folder_name, 0x00, BT_MAP_MSG_INFO_MAX);
 
 		ret = msg_get_str_value(p_folder, MSG_FOLDER_INFO_NAME_STR,
@@ -1307,63 +1466,12 @@ static gboolean bluetooth_map_get_folder_tree(BluetoothMapAgent *agent,
 		g_ptr_array_add(array, g_value_get_boxed(&value));
 	}
 
-#ifdef SUPPORT_EMAIL
-email:
-	if (EMAIL_ERROR_NONE != email_load_default_account_id(&account_id))
-		goto done;
-
-	if (EMAIL_ERROR_NONE != email_get_mailbox_list(account_id,
-							EMAIL_MAILBOX_ALL,
-							&mailbox_list,
-							&mailbox_count)) {
-		goto done;
-	}
-
-	msg_ret = TRUE;
-
-	for (i = 0; i < mailbox_count; i++) {
-		flag = FALSE;
-		for (j = 0; j < g_folderList.nCount; j++) {
-
-			p_folder = g_folderList.msg_struct_info[j];
-			memset(folder_name, 0x00, BT_MAP_MSG_INFO_MAX);
-
-			ret = msg_get_str_value(p_folder,
-						MSG_FOLDER_INFO_NAME_STR,
-						folder_name,
-						BT_MAP_MSG_INFO_MAX);
-			if (ret != MSG_SUCCESS)
-				continue;
-
-			if (!g_ascii_strncasecmp(mailbox_list[i].alias,
-				folder_name, strlen(mailbox_list[i].alias))) {
-				flag = TRUE;
-				break;
-			}
-		}
-
-		if (!flag) {
-			g_strlcpy(name, mailbox_list[i].alias, sizeof(name));
-
-			if (!g_ascii_strncasecmp(name, BT_MAP_SENT_FOLDER_NAME,
-					strlen(BT_MAP_SENT_FOLDER_NAME)))
-				continue;
-
-			memset(&value, 0, sizeof(GValue));
-			g_value_init(&value, DBUS_STRUCT_STRING_STRING_UINT);
-			g_value_take_boxed(&value,
-				dbus_g_type_specialized_construct(
-				DBUS_STRUCT_STRING_STRING_UINT));
-			dbus_g_type_struct_set(&value, 0, name, G_MAXUINT);
-			g_ptr_array_add(array, g_value_get_boxed(&value));
-		}
-	}
-
-	if (mailbox_list != NULL)
-		 email_free_mailbox(&mailbox_list, mailbox_count);
-#endif
-
 done:
+
+	if (folder_list.msg_struct_info) {
+		ret = msg_release_list_struct(&folder_list);
+		DBG("Err %d", ret);
+	}
 
 	if (msg_ret == FALSE) {
 		g_ptr_array_free(array, TRUE);
@@ -1391,27 +1499,15 @@ static gboolean bluetooth_map_get_message_list(BluetoothMapAgent *agent,
 	char *folder = NULL;
 	int i = 0;
 	int ret = 0;
-	int folder_id = 0;
+	int folder_id = -1;
 	int unread_cnt;
-	guint64 count;
-	gboolean newmsg;
+	guint64 count = 0;
+	gboolean newmsg = FALSE;
 
-	msg_struct_list_s g_folderList;
-	msg_struct_list_s msg_list;
+	msg_struct_list_s folder_list = {0,};
+	msg_struct_list_s msg_list = {0,};
 	msg_struct_t count_info;
-
-#ifdef SUPPORT_EMAIL
-	int total = 0;
-	int account_id = 0;
-	int mailbox_count = 0;
-	int mail_count = 0;
-	char *type = NULL;
-	char msg_datetime[BT_MAP_TIMESTAMP_MAX_LEN] = {0,};
-	email_mailbox_t *mailbox_list = NULL;
-	email_mail_list_item_t *mail_list = NULL;
-	email_list_filter_t *filter_list = NULL;
-	email_list_sorting_rule_t *sorting_rule_list = NULL;
-#endif
+	msg_struct_t list_cond;
 
 	if (g_msg_handle == NULL)
 		goto fail;
@@ -1422,12 +1518,15 @@ static gboolean bluetooth_map_get_message_list(BluetoothMapAgent *agent,
 	else
 		folder++;
 
-	ret = msg_get_folder_list(g_msg_handle, &g_folderList);
+	if (!strlen(folder))
+		goto done;
+
+	ret = msg_get_folder_list(g_msg_handle, &folder_list);
 	if (ret != MSG_SUCCESS)
 		goto fail;
 
-	for (i = 0; i < g_folderList.nCount; i++) {
-		msg_struct_t pFolder = g_folderList.msg_struct_info[i];
+	for (i = 0; i < folder_list.nCount; i++) {
+		msg_struct_t pFolder = folder_list.msg_struct_info[i];
 		char folderName[BT_MAP_MSG_INFO_MAX] = {0, };
 
 		ret = msg_get_str_value(pFolder, MSG_FOLDER_INFO_NAME_STR,
@@ -1447,9 +1546,21 @@ static gboolean bluetooth_map_get_message_list(BluetoothMapAgent *agent,
 		}
 	}
 
-	ret = msg_get_folder_view_list(g_msg_handle, folder_id,
-							NULL, &msg_list);
-	if (ret  != MSG_SUCCESS)
+	if (folder_id == -1)
+		goto done;
+
+	list_cond = msg_create_struct(MSG_STRUCT_MSG_LIST_CONDITION);
+	ret = msg_set_int_value(list_cond,
+				MSG_LIST_CONDITION_FOLDER_ID_INT,
+				folder_id);
+	if (ret != MSG_SUCCESS)
+		goto fail;
+
+	ret = msg_get_message_list2(g_msg_handle, list_cond, &msg_list);
+
+	msg_release_struct(&list_cond);
+
+	if (ret != MSG_SUCCESS)
 		goto fail;
 
 	count = msg_list.nCount;
@@ -1470,8 +1581,6 @@ static gboolean bluetooth_map_get_message_list(BluetoothMapAgent *agent,
 
 	if (unread_cnt != 0)
 		newmsg = TRUE;
-	else
-		newmsg = FALSE;
 
 	msg_release_struct(&count_info);
 
@@ -1490,28 +1599,10 @@ static gboolean bluetooth_map_get_message_list(BluetoothMapAgent *agent,
 
 		msg_info = __bt_message_info_get(msg_list.msg_struct_info[i]);
 
-/* Keeping the bleow debug till stabilization is done. */
-
-/*
-	DBG("msg_info.handle = %s\n", msg_info.handle);
-	DBG("msg_info.subject = %s\n", msg_info.subject);
-	DBG("msg_info.datetime = %s\n", msg_info.datetime);
-	DBG("msg_info.sender_name = %s\n", msg_info.sender_name);
-	DBG("msg_info.sender_addressing = %s\n", msg_info.sender_addressing);
-	DBG("msg_info.replyto_addressing = %s\n", msg_info.replyto_addressing);
-	DBG("msg_info.recipient_name = %s\n", msg_info.recipient_name);
-	DBG("msg_info.recipient_addressing = %s\n",
-					msg_info.recipient_addressing);
-	DBG("msg_info.type = %s\n", msg_info.type);
-	DBG("msg_info.reception_status = %s\n", msg_info.reception_status);
-	DBG("msg_info.size = %s\n", msg_info.size);
-	DBG("msg_info.attachment_size = %s\n", msg_info.attachment_size);
-	DBG("msg_info.text = %d\n", msg_info.text);
-	DBG("msg_info.read = %d\n", msg_info.read);
-	DBG("msg_info.sent = %d\n", msg_info.sent);
-	DBG("msg_info.protect = %d\n", msg_info.protect);
-	DBG("msg_info.priority = %d\n", msg_info.priority);
-*/
+		if (!__bt_convert_msg_data(&msg_info)) {
+			__bt_message_info_free(msg_info);
+			continue;
+		}
 
 		dbus_g_type_struct_set(&value, 0, msg_info.handle,
 					1, msg_info.subject,
@@ -1529,130 +1620,41 @@ static gboolean bluetooth_map_get_message_list(BluetoothMapAgent *agent,
 					13, msg_info.read,
 					14, msg_info.sent,
 					15, msg_info.protect,
-					16, msg_info.replyto_addressing, G_MAXUINT);
+					16, msg_info.replyto_addressing,
+					G_MAXUINT);
 		g_ptr_array_add(array, g_value_get_boxed(&value));
 
 		__bt_message_info_free(msg_info);
 	}
 
-#ifdef SUPPORT_EMAIL
-email:
-	if (EMAIL_ERROR_NONE != email_load_default_account_id(&account_id)) {
-		if (!msg_ret)
-			goto fail;
-	}
-
-	if (EMAIL_ERROR_NONE != email_get_mailbox_list(account_id,
-							EMAIL_MAILBOX_ALL,
-							&mailbox_list,
-							&mailbox_count)) {
-		if (!msg_ret)
-			goto fail;
-	}
-
-	if (mailbox_list == NULL)
-		goto fail;
-
-	for (i = 0; i < mailbox_count; i++) {
-		DBG("mailbox alias = %s \n", mailbox_list[i].alias);
-		if (!g_ascii_strncasecmp(mailbox_list[i].alias, folder,
-			strlen(folder))) {
-			total = mailbox_list[i].total_mail_count_on_server;
-			DBG("Total mail on sever:%d\n", total);
-			DBG("mailbox name:%s\n", mailbox_list[i].mailbox_name);
-
-			break;
-		}
-
-		if (!msg_ret)
-			goto fail;
-		else
-			goto done;
-	}
-
-	/* Need to modify the filter code, have to make it dynamic
-	   based on remote device request Also to check whether it needs
-	   to be done in agent or in obexd */
-
-	filter_list = g_new0(email_list_filter_t, 3);
-	filter_list[0].list_filter_item_type = EMAIL_LIST_FILTER_ITEM_RULE;
-	filter_list[0].list_filter_item.rule.target_attribute =
-						EMAIL_MAIL_ATTRIBUTE_ACCOUNT_ID;
-	filter_list[0].list_filter_item.rule.rule_type =
-						EMAIL_LIST_FILTER_RULE_EQUAL;
-	filter_list[0].list_filter_item.rule.key_value.integer_type_value =
-								account_id;
-
-	filter_list[1].list_filter_item_type = EMAIL_LIST_FILTER_ITEM_OPERATOR;
-	filter_list[1].list_filter_item.operator_type =
-						EMAIL_LIST_FILTER_OPERATOR_AND;
-
-	filter_list[2].list_filter_item_type = EMAIL_LIST_FILTER_ITEM_RULE;
-	filter_list[2].list_filter_item.rule.target_attribute =
-					EMAIL_MAIL_ATTRIBUTE_MAILBOX_NAME;
-	filter_list[2].list_filter_item.rule.rule_type =
-						EMAIL_LIST_FILTER_RULE_EQUAL;
-	type = g_strdup(mailbox_list[i].mailbox_name);
-	filter_list[2].list_filter_item.rule.key_value.string_type_value = type;
-	filter_list[2].list_filter_item.rule.case_sensitivity = true;
-
-	sorting_rule_list = g_new0(email_list_sorting_rule_t, 1);
-	sorting_rule_list->target_attribute = EMAIL_MAIL_ATTRIBUTE_DATE_TIME;
-	sorting_rule_list->sort_order = EMAIL_SORT_ORDER_ASCEND;
-
-	ret = email_get_mail_list_ex(filter_list, 3,
-					sorting_rule_list, 1, 0, total - 1,
-					&mail_list, &mail_count);
-
-	DBG("email API ret %d  \n", ret);
-	if (ret != EMAIL_ERROR_NONE) {
-		if (!msg_ret) {
-			g_free(type);
-			g_free(filter_list);
-			g_free(sorting_rule_list);
-			goto fail;
-		} else
-			goto done;
-	}
-
-	for (i = 0; i < mail_count; ++i) {
-		time_t time = {0,};
-		memset(&value, 0, sizeof(GValue));
-		g_value_init(&value, DBUS_STRUCT_MESSAGE_LIST);
-		g_value_take_boxed(&value, dbus_g_type_specialized_construct(
-					DBUS_STRUCT_MESSAGE_LIST));
-
-		uid = __bt_add_id(mail_list[i].mail_id);
-		snprintf(msg_handle, sizeof(msg_handle), "%llx", uid);
-
-		g_strlcpy(msg_type,  "EMAIL", sizeof(msg_type));
-
-		time = mail_list[i].date_time;
-		__get_msg_timestamp(&time, msg_datetime);
-
-		dbus_g_type_struct_set(&value, 0, msg_handle, 1, msg_type,
-					2, msg_datetime, G_MAXUINT);
-		g_ptr_array_add(array, g_value_get_boxed(&value));
-	}
-
-	if (mailbox_list != NULL)
-		 email_free_mailbox(&mailbox_list, mailbox_count);
-	if (mail_list != NULL)
-		g_free(mail_list);
-
-	g_free(filter_list);
-	g_free(sorting_rule_list);
-	g_free(type);
-#endif
-
 done:
 	DBG("Request completed \n");
+
+	if (folder_list.msg_struct_info) {
+		ret = msg_release_list_struct(&folder_list);
+		DBG("Err %d", ret);
+	}
+
+	if (msg_list.msg_struct_info) {
+		ret = msg_release_list_struct(&msg_list);
+		DBG("Err%d", ret);
+	}
+
 	dbus_g_method_return(context, newmsg, count, array);
 	g_ptr_array_free(array, TRUE);
 	DBG("Request completed successfully \n");
 	return TRUE;
 
 fail:
+	if (folder_list.msg_struct_info) {
+		ret = msg_release_list_struct(&folder_list);
+		DBG("Err %d", ret);
+	}
+
+	if (msg_list.msg_struct_info) {
+		ret = msg_release_list_struct(&msg_list);
+		DBG("Err%d", ret);
+	}
 	g_ptr_array_free(array, TRUE);
 	error = __bt_map_agent_error(BT_MAP_AGENT_ERROR_INTERNAL,
 							  "InternalError");
@@ -1677,9 +1679,7 @@ static gboolean bluetooth_map_get_message(BluetoothMapAgent *agent,
 
 	msg_struct_t msg = NULL;
 	msg_struct_t send_opt = NULL;
-#ifdef SUPPORT_EMAIL
-	email_mail_data_t *mail_data = NULL;
-#endif
+
 	message_id = __bt_get_uid(message_name);
 	if (message_id == -1)
 		goto fail;
@@ -1709,44 +1709,6 @@ static gboolean bluetooth_map_get_message(BluetoothMapAgent *agent,
 
 		msg_release_struct(&msg);
 		msg_release_struct(&send_opt);
-#ifdef SUPPORT_EMAIL
-	} else if (msg_type == BT_EMAIL) {
-
-		FILE *body_file;
-		int account_id;
-		long read_size;
-		long email_size;
-
-		if (EMAIL_ERROR_NONE !=
-				email_load_default_account_id(&account_id))
-			goto fail;
-
-		if (EMAIL_ERROR_NONE !=
-				email_get_mail_data(message_id, &mail_data))
-			goto fail;
-
-		body_file = fopen(mail_data->file_path_plain, "r");
-		if (body_file == NULL)
-			body_file = fopen(mail_data->file_path_html, "rb");
-
-		if (body_file != NULL) {
-			fseek(body_file , 0, SEEK_END);
-			email_size = ftell(body_file);
-			rewind(body_file);
-
-			buf = (char *)g_malloc0(sizeof(char) * email_size);
-
-			read_size = fread(buf, 1, email_size, body_file);
-
-			fclose(body_file);
-
-			if (read_size != email_size)
-				goto fail;
-		} else
-			buf = (char *)g_strdup("");
-
-		email_free_mail_data(&mail_data, 1);
-#endif
 	} else {
 		DBG("msg_type not supported %d \n", msg_type);
 		goto fail;
@@ -1766,11 +1728,6 @@ fail:
 
 	if (send_opt)
 		msg_release_struct(&send_opt);
-
-#ifdef SUPPORT_EMAIL
-	if (mail_data)
-		email_free_mail_data(&mail_data, 1);
-#endif
 
 	error = __bt_map_agent_error(BT_MAP_AGENT_ERROR_INTERNAL,
 							"InternalError");
@@ -1860,7 +1817,7 @@ static gboolean bluetooth_map_push_message_data(BluetoothMapAgent *agent,
 	if (MSG_OUTBOX_ID == folder_id)
 		send = TRUE;
 
-	body = bmsg_get_msg_body(bmsg_info);
+	body = bmsg_get_msg_body(bmsg_info, opt.native);
 	if (body == NULL)
 		goto done;
 
@@ -1896,22 +1853,9 @@ static gboolean bluetooth_map_update_message(BluetoothMapAgent *agent,
 						DBusGMethodInvocation *context)
 {
 	int err = TRUE;
-#ifdef SUPPORT_EMAIL
-	int handle;
-	err = email_sync_header_for_all_account(&handle);
 
-	if (err == EMAIL_ERROR_NONE) {
-		DBG("Handle to stop download = %d \n", handle);
-	} else {
-		ERR("Message Update failed \n");
-	}
-
-	dbus_g_method_return(context, err);
-	return (err == EMAIL_ERROR_NONE) ? TRUE : FALSE;
-#else
 	dbus_g_method_return(context, err);
 	return TRUE;
-#endif
 }
 
 static gboolean bluetooth_map_set_read_status(BluetoothMapAgent *agent,
@@ -1921,9 +1865,7 @@ static gboolean bluetooth_map_set_read_status(BluetoothMapAgent *agent,
 {
 	int message_id = 0;
 	int msg_type = BT_SMS;
-#ifdef SUPPORT_EMAIL
-	email_mail_data_t *mail_data = NULL;
-#endif
+
 	GError *error = NULL;
 
 	DBG("+\n");
@@ -1981,26 +1923,9 @@ static gboolean bluetooth_map_set_read_status(BluetoothMapAgent *agent,
 
 		if (msg_err != MSG_SUCCESS)
 			goto fail;
-#ifdef SUPPORT_EMAIL
-	} else if (msg_type == BT_EMAIL) {
-
-		if (email_get_mail_data(message_id, &mail_data) !=
-							EMAIL_ERROR_NONE) {
-			ERR("email_get_mail_data failed\n");
-			goto fail;
-		}
-
-		if (email_set_flags_field(mail_data->account_id, &message_id, 1,
-			EMAIL_FLAGS_SEEN_FIELD, read_status, 0) !=
-							EMAIL_ERROR_NONE) {
-			email_free_mail_data(&mail_data, 1);
-			goto fail;
-		}
-
-		email_free_mail_data(&mail_data, 1);
-#endif
-	} else
+	} else {
 		goto fail;
+	}
 
 	dbus_g_method_return(context);
 	DBG("-\n");
@@ -2022,9 +1947,7 @@ static gboolean bluetooth_map_set_delete_status(BluetoothMapAgent *agent,
 {
 	int message_id = 0;
 	int msg_type = BT_SMS;
-#ifdef SUPPORT_EMAIL
-	email_mail_data_t *mail_data = NULL;
-#endif
+
 	GError *error = NULL;
 
 	DBG("+\n");
@@ -2040,21 +1963,6 @@ static gboolean bluetooth_map_set_delete_status(BluetoothMapAgent *agent,
 								MSG_SUCCESS) {
 			goto fail;
 		}
-#ifdef SUPPORT_EMAIL
-	} else if (msg_type == BT_EMAIL) {
-
-		if (email_get_mail_data(message_id, &mail_data) !=
-							EMAIL_ERROR_NONE)
-			goto fail;
-
-		if (email_delete_mail(mail_data->mailbox_id, &message_id,
-						1, 1) != EMAIL_ERROR_NONE) {
-			email_free_mail_data(&mail_data, 1);
-			goto fail;
-		}
-
-		email_free_mail_data(&mail_data, 1);
-#endif
 	} else
 		goto fail;
 
@@ -2085,12 +1993,22 @@ static gboolean bluetooth_map_noti_registration(BluetoothMapAgent *agent,
 	return TRUE;
 }
 
-int main(int argc, char **argv)
+static gboolean bluetooth_map_destroy_agent(BluetoothMapAgent *agent,
+					DBusGMethodInvocation *context)
+{
+	DBG("+");
+	g_main_loop_quit(g_mainloop);
+	DBG("-");
+}
+
+int main(void)
 {
 	BluetoothMapAgent *bluetooth_map_obj = NULL;
 	DBusGProxy *bus_proxy = NULL;
 	guint result = 0;
+	int ret;
 	GError *error = NULL;
+	DBG("Starting Bluetooth MAP agent");
 
 	g_type_init();
 
@@ -2150,12 +2068,22 @@ int main(int argc, char **argv)
 	if (__bluetooth_map_start_service() == FALSE)
 		goto failure;
 
+	g_tapi_handle = tel_init(NULL);
+	if (!g_tapi_handle)
+		goto failure;
+
+	ret = tel_get_sms_sca(g_tapi_handle, 0, __bt_get_sms_sca, NULL);
+	if (ret != TAPI_API_SUCCESS)
+		goto failure;
+
 	g_main_loop_run(g_mainloop);
 
  failure:
-	DBG("Terminate the bluetooth-map-agent\n");
 
 	__bt_remove_list(id_list);
+
+	tel_deinit(g_tapi_handle);
+	g_free(g_sca_info);
 
 	if (g_mns_path)
 		__bt_mns_client_disconnect();
@@ -2168,5 +2096,6 @@ int main(int argc, char **argv)
 
 
 	__bluetooth_map_stop_service();
+	DBG("Terminate Bluetooth MAP agent\n");
 	return EXIT_FAILURE;
 }

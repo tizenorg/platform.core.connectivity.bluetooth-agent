@@ -56,5 +56,8 @@
 			<arg type="b" name="status"/>
 			<arg type="u" name="update_err" direction="out"/>
 		</method>
+		<method name="DestroyAgent">
+			<annotation name="org.freedesktop.DBus.GLib.Async" value=""/>
+		</method>
 	</interface>
 </node>

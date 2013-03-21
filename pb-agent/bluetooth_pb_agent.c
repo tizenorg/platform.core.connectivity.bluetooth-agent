@@ -169,6 +169,9 @@ static gboolean bluetooth_pb_add_contact (BluetoothPbAgent *agent,
 					const char *filename,
 					GError **error);
 
+static gboolean bluetooth_pb_destroy_agent(BluetoothPbAgent *agent,
+					DBusGMethodInvocation *context);
+
 static void __bluetooth_pb_dbus_return_error(DBusGMethodInvocation *context,
 					gint code,
 					const gchar *message);
@@ -1270,6 +1273,7 @@ static void __bluetooth_pb_get_vcards(BluetoothPbAgent *agent,
 	status = contacts_db_get_records_with_query(query, offset, limit, &record_list);
 
 	if (status != CONTACTS_ERROR_NONE) {
+		contacts_list_destroy(record_list, TRUE);
 		contacts_query_destroy(query);
 		return;
 	}
@@ -1345,8 +1349,10 @@ static void __bluetooth_pb_get_contact_list(BluetoothPbAgent *agent,
 	status = contacts_db_get_records_with_query(query,
 			-1, -1, &record_list);
 
-	if (status != CONTACTS_ERROR_NONE)
+	if (status != CONTACTS_ERROR_NONE) {
+		contacts_list_destroy(record_list, TRUE);
 		return;
+	}
 
 	status = contacts_list_first(record_list);
 
@@ -1414,8 +1420,10 @@ static void __bluetooth_pb_get_phone_log_list(BluetoothPbAgent *agent,
 	status = contacts_db_get_records_with_query(query,
 			-1, -1, &record_list);
 
-	if (status != CONTACTS_ERROR_NONE)
+	if (status != CONTACTS_ERROR_NONE) {
+		contacts_list_destroy(record_list, TRUE);
 		return;
+	}
 
 	status = contacts_list_first(record_list);
 
@@ -1551,8 +1559,10 @@ static void __bluetooth_pb_get_contact_list_number(BluetoothPbAgent *agent,
 			from - 1 , offset,
 			&record_list);
 
-	if (status != CONTACTS_ERROR_NONE)
+	if (status != CONTACTS_ERROR_NONE) {
+		contacts_list_destroy(record_list, TRUE);
 		return;
+	}
 
 	status = contacts_list_first(record_list);
 
@@ -1628,8 +1638,10 @@ static void __bluetooth_pb_get_phone_log_list_number(BluetoothPbAgent *agent,
 			from - 1 , offset,
 			&record_list);
 
-	if (status != CONTACTS_ERROR_NONE)
+	if (status != CONTACTS_ERROR_NONE) {
+		contacts_list_destroy(record_list, TRUE);
 		return;
+	}
 
 	status = contacts_list_first(record_list);
 	if (status != CONTACTS_ERROR_NONE) {
@@ -1732,8 +1744,10 @@ static void __bluetooth_pb_get_contact_list_name(BluetoothPbAgent *agent,
 	status = contacts_db_get_records_with_query(query,
 			-1, -1, &record_list);
 
-	if (status != CONTACTS_ERROR_NONE)
+	if (status != CONTACTS_ERROR_NONE) {
+		contacts_list_destroy(record_list, TRUE);
 		return;
+	}
 
 	status = contacts_list_first(record_list);
 
@@ -1773,6 +1787,7 @@ static void __bluetooth_pb_get_contact_list_name(BluetoothPbAgent *agent,
 
 		i++;
 	} while (contacts_list_next(record_list) == CONTACTS_ERROR_NONE);
+	contacts_list_destroy(record_list, TRUE);
 }
 
 static void __bluetooth_pb_get_phone_log_list_name(BluetoothPbAgent *agent,
@@ -1790,8 +1805,10 @@ static void __bluetooth_pb_get_phone_log_list_name(BluetoothPbAgent *agent,
 			-1, -1,
 			&record_list);
 
-	if (status != CONTACTS_ERROR_NONE)
+	if (status != CONTACTS_ERROR_NONE) {
+		contacts_list_destroy(record_list, TRUE);
 		return;
+	}
 
 	status = contacts_list_first(record_list);
 
@@ -1962,10 +1979,12 @@ static void __bluetooth_pb_list_ptr_array_free(gpointer data)
 
 static void __bluetooth_pb_agent_signal_handler(int signum)
 {
-	if (mainloop)
+	if (mainloop) {
 		g_main_loop_quit(mainloop);
-	else
+	} else {
+		DBG("Terminate Bluetooth PBAP agent");
 		exit(0);
+	}
 }
 
 
@@ -2087,7 +2106,13 @@ static void __bluetooth_pb_agent_dbus_init(BluetoothPbAgent *agent)
 			G_OBJECT(agent));
 }
 
-int main(int argc, char **argv)
+static gboolean bluetooth_pb_destroy_agent(BluetoothPbAgent *agent,
+					DBusGMethodInvocation *context)
+{
+	g_main_loop_quit(mainloop);
+}
+
+int main(void)
 {
 	BluetoothPbAgent *agent;
 
@@ -2095,6 +2120,7 @@ int main(int argc, char **argv)
 	gint tapi_result;
 
 	struct sigaction sa;
+	DBG("Starting Bluetooth PBAP agent");
 
 	g_type_init();
 
@@ -2139,23 +2165,21 @@ int main(int argc, char **argv)
 
 	g_main_loop_run(mainloop);
 
-	DBG("Terminate the bluetooth-pb-agent\n");
-
-	if (agent) {
-		contacts_db_remove_changed_cb(_contacts_event._uri,
-				__bluetooth_pb_contact_changed,
-				g_object_ref(agent));
-
-		g_object_unref(agent);
+	if (contacts_db_remove_changed_cb(_contacts_event._uri,
+			__bluetooth_pb_contact_changed,
+			g_object_ref(agent)) != CONTACTS_ERROR_NONE) {
+		DBG("Cannot remove changed callback");
 	}
 
+	g_object_unref(agent);
 
-	contacts_disconnect2();
+	if (contacts_disconnect2() != CONTACTS_ERROR_NONE)
+		DBG("contacts_disconnect2 failed \n");
 
 	g_signal_emit(agent, signals[CLEAR], 0);
 
-	if (agent)
-		g_object_unref(agent);
+	g_object_unref(agent);
 
+	DBG("Terminate Bluetooth PBAP agent");
 	return ret;
 }
