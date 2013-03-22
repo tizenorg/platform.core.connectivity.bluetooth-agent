@@ -1278,7 +1278,6 @@ static void __bluetooth_pb_get_vcards(BluetoothPbAgent *agent,
 
 	if (status != CONTACTS_ERROR_NONE) {
 		contacts_list_destroy(record_list, TRUE);
-		contacts_query_destroy(query);
 		return;
 	}
 
@@ -1352,7 +1351,6 @@ static void __bluetooth_pb_get_contact_list(BluetoothPbAgent *agent,
 
 	if (status != CONTACTS_ERROR_NONE) {
 		contacts_list_destroy(record_list, TRUE);
-		contacts_query_destroy(query);
 		return;
 	}
 
@@ -1421,7 +1419,6 @@ static void __bluetooth_pb_get_phone_log_list(BluetoothPbAgent *agent,
 
 	if (status != CONTACTS_ERROR_NONE) {
 		contacts_list_destroy(record_list, TRUE);
-		contacts_query_destroy(query);
 		return;
 	}
 
