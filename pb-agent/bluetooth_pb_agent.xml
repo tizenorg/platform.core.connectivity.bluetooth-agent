@@ -49,10 +49,6 @@
 			<arg type="s" name="filename"/>
 		</method>
 
-		<method name="DestroyAgent">
-			<annotation name="org.freedesktop.DBus.GLib.Async" value=""/>
-		</method>
-
 		<signal name="clear"/>
 
 	</interface>

@@ -16,6 +16,7 @@
  * limitations under the License.
  *
  */
+
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -28,8 +29,6 @@
 
 #include <TapiUtility.h>
 #include <ITapiSim.h>
-#include <app.h>
-#include <aul.h>
 
 #include "vconf.h"
 #include "vconf-keys.h"
@@ -80,26 +79,6 @@ static gboolean nrec_status = FALSE;
    format: tel:<number>
 */
 #define BT_MAX_TEL_NUM_STRING 20
-
-/**
- * @brief Outgoing call type status
- *
- * 0 : Follow last call log \n
- * 1 : Voice call \n
- * 2 : Video call \n
- */
-#define BT_FOLLOW_CALL_LOG 0
-#define BT_VOICE_CALL 1
-#define BT_VIDEO_CALL 2
-
-/**
- * @brief The status of making outgoing calls with BT headsets
- *
- * 0 : Even when device locked \n
- * 1 : Only when device unlocked \n
- */
-#define BT_MO_EVEN_LOCKED 0
-#define BT_MO_ONLY_UNLOCKED 1
 
 typedef struct {
 	GObject parent;
@@ -843,66 +822,6 @@ static gboolean bt_hfp_agent_get_properties(BtHfpAgent *agent,
 	return TRUE;
 }
 
-static gboolean __bt_is_phone_locked(int *phone_lock_state)
-{
-	int ret;
-	DBG("+\n");
-
-	if (NULL == phone_lock_state)
-		return FALSE;
-
-	ret = vconf_get_int(VCONFKEY_IDLE_LOCK_STATE, phone_lock_state);
-	if (ret != 0) {
-		DBG("Failed to read  [%s]\n", VCONFKEY_IDLE_LOCK_STATE);
-		return FALSE;
-	}
-
-	DBG("[%s] = [%d]\n", VCONFKEY_IDLE_LOCK_STATE, *phone_lock_state);
-	DBG("-\n");
-
-	return TRUE;
-}
-
-static gboolean __bt_get_outgoing_callapp_type(int *callapp_type)
-{
-	int ret;
-	DBG(" +\n");
-
-	if (NULL == callapp_type)
-		return FALSE;
-
-	ret = vconf_get_int(VCONFKEY_CISSAPPL_OUTGOING_CALL_TYPE_INT, callapp_type);
-	if (ret != 0) {
-		DBG("Failed to read  [%s]\n", VCONFKEY_CISSAPPL_OUTGOING_CALL_TYPE_INT);
-		return FALSE;
-	}
-
-	DBG(" [%s] = [%d]\n", VCONFKEY_CISSAPPL_OUTGOING_CALL_TYPE_INT, *callapp_type);
-	DBG("-\n");
-
-	return TRUE;
-}
-
-static gboolean __bt_get_outgoing_call_condition(int *condition)
-{
-	int ret;
-	DBG("+\n");
-
-	if (NULL == condition)
-		return FALSE;
-
-	ret = vconf_get_int(VCONFKEY_CISSAPPL_OUTGOING_CALL_CONDITIONS_INT, condition);
-	if (ret != 0) {
-		DBG("Failed to read  [%s]\n", VCONFKEY_CISSAPPL_OUTGOING_CALL_CONDITIONS_INT);
-		return FALSE;
-	}
-
-	DBG(" [%s] = [%d]\n", VCONFKEY_CISSAPPL_OUTGOING_CALL_CONDITIONS_INT, *condition);
-	DBG("-\n");
-
-	return TRUE;
-}
-
 static gboolean __bt_hfp_agent_make_call(const char *number)
 {
 	bundle *b;
@@ -922,39 +841,18 @@ static gboolean __bt_hfp_agent_make_call(const char *number)
 	return TRUE;
 }
 
-static gboolean __bt_hfp_agent_make_video_call(const char *mo_number)
-{
-	bundle *kb;
-
-	kb = bundle_create();
-	if (NULL == kb)
-		return FALSE;
-
-	bundle_add(kb, "KEY_CALL_TYPE", "MO");
-	bundle_add(kb, "number", mo_number);
-	aul_launch_app("com.samsung.vtmain", kb);
-	bundle_free(kb);
-
-	return TRUE;
-}
-
 static gboolean bt_hfp_agent_dial_last_num(BtHfpAgent *agent,
 				DBusGMethodInvocation *context)
 {
 	GError *error;
 	int error_code = BT_HFP_AGENT_ERROR_NONE;
 	char *last_number = NULL;
-	int log_type;
-	int callapp_type;
-	int phone_lock_state;
-	int condition;
 	contacts_list_h list = NULL;
 	contacts_query_h query = NULL;
 	contacts_filter_h filter = NULL;
 	contacts_record_h record = NULL;
 	unsigned int projections[] = {
 		_contacts_phone_log.address,
-		_contacts_phone_log.log_type,
 	};
 
 	DBG("+ \n");
@@ -1041,11 +939,8 @@ static gboolean bt_hfp_agent_dial_last_num(BtHfpAgent *agent,
 	if (record == NULL)
 		goto done;
 
-	if (contacts_record_get_str(record, _contacts_phone_log.address,
-				&last_number)!= CONTACTS_ERROR_NONE) {
-		error_code = BT_HFP_AGENT_ERROR_INTERNAL;
-		goto done;
-	}
+	contacts_record_get_str(record, _contacts_phone_log.address,
+							&last_number);
 
 	if (last_number == NULL) {
 		ERR("No last number \n");
@@ -1053,66 +948,13 @@ static gboolean bt_hfp_agent_dial_last_num(BtHfpAgent *agent,
 		goto done;
 	}
 
-	if (!__bt_is_phone_locked(&phone_lock_state)) {
+	/*Make Voice call*/
+	if (!__bt_hfp_agent_make_call(last_number)) {
+		ERR("Problem launching application \n");
 		error_code = BT_HFP_AGENT_ERROR_INTERNAL;
-		goto done;
 	}
 
-	if (!__bt_get_outgoing_callapp_type(&callapp_type)) {
-		error_code = BT_HFP_AGENT_ERROR_INTERNAL;
-		goto done;
-	}
-
-	if (!__bt_get_outgoing_call_condition(&condition)) {
-		error_code = BT_HFP_AGENT_ERROR_INTERNAL;
-		goto done;
-	}
-
-	if (condition == BT_MO_ONLY_UNLOCKED &&
-		phone_lock_state == VCONFKEY_IDLE_LOCK) {
-		error_code = BT_HFP_AGENT_ERROR_INTERNAL;
-		goto done;
-	}
-
-	switch (callapp_type) {
-		case BT_VOICE_CALL:
-			if (!__bt_hfp_agent_make_call(last_number)) {
-				ERR("Problem launching application \n");
-				error_code = BT_HFP_AGENT_ERROR_INTERNAL;
-			}
-			break;
-		case BT_VIDEO_CALL:
-			if(!__bt_hfp_agent_make_video_call(last_number)) {
-				ERR("Problem launching application \n");
-				error_code = BT_HFP_AGENT_ERROR_INTERNAL;
-			}
-			break;
-		case BT_FOLLOW_CALL_LOG:
-			if(contacts_record_get_int(record,
-				_contacts_phone_log.log_type,
-				&log_type) != CONTACTS_ERROR_NONE) {
-				error_code = BT_HFP_AGENT_ERROR_INTERNAL;
-				break;
-			}
-			if (log_type == CONTACTS_PLOG_TYPE_VOICE_OUTGOING) {
-				if (!__bt_hfp_agent_make_call(last_number)) {
-					ERR("Problem launching application \n");
-					error_code = BT_HFP_AGENT_ERROR_INTERNAL;
-				}
-			}
-			else if(log_type == CONTACTS_PLOG_TYPE_VIDEO_OUTGOING) {
-				if(!__bt_hfp_agent_make_video_call(last_number)) {
-					ERR("Problem launching application \n");
-					error_code = BT_HFP_AGENT_ERROR_INTERNAL;
-				}
-			} else {
-				error_code = BT_HFP_AGENT_ERROR_INTERNAL;
-			}
-			break;
-		default:
-			error_code = BT_HFP_AGENT_ERROR_INTERNAL;
-			break;
-	}
+	g_free(last_number);
 
 done:
 	if (list != NULL)
@@ -1125,9 +967,6 @@ done:
 		contacts_query_destroy(query);
 
 	contacts_disconnect2();
-
-	if (last_number != NULL)
-		g_free(last_number);
 
 	DBG("-\n");
 
@@ -1148,9 +987,6 @@ static gboolean bt_hfp_agent_dial_num(BtHfpAgent *agent,
 {
 	GError *error;
 	int error_code;
-	int callapp_type;
-	int phone_lock_state;
-	int condition;
 
 	DBG("+\n");
 
@@ -1165,38 +1001,11 @@ static gboolean bt_hfp_agent_dial_num(BtHfpAgent *agent,
 
 	/*TODO: Make use of flags*/
 
-	if (!__bt_is_phone_locked(&phone_lock_state)) {
+	/*Make Voice call*/
+	if (!__bt_hfp_agent_make_call(number)) {
+		ERR("Problem launching application \n");
 		error_code = BT_HFP_AGENT_ERROR_INTERNAL;
 		goto fail;
-	}
-
-	if (!__bt_get_outgoing_callapp_type(&callapp_type)) {
-		error_code = BT_HFP_AGENT_ERROR_INTERNAL;
-		goto fail;
-	}
-
-	if (!__bt_get_outgoing_call_condition(&condition)) {
-		error_code = BT_HFP_AGENT_ERROR_INTERNAL;
-		goto fail;
-	}
-
-	if (condition == BT_MO_ONLY_UNLOCKED && phone_lock_state == VCONFKEY_IDLE_LOCK) {
-		error_code = BT_HFP_AGENT_ERROR_INTERNAL;
-		goto fail;
-	}
-
-	if (callapp_type == BT_VIDEO_CALL) {
-		if(!__bt_hfp_agent_make_video_call(number)) {
-			ERR("Problem launching application \n");
-			error_code = BT_HFP_AGENT_ERROR_INTERNAL;
-			goto fail;
-		}
-	} else {
-		if (!__bt_hfp_agent_make_call(number)) {
-			ERR("Problem launching application \n");
-			error_code = BT_HFP_AGENT_ERROR_INTERNAL;
-			goto fail;
-		}
 	}
 
 	dbus_g_method_return(context);
@@ -1284,11 +1093,8 @@ static gboolean bt_hfp_agent_dial_memory(BtHfpAgent *agent, gint location,
 	if (record == NULL)
 		goto done;
 
-	if (contacts_record_get_str(record, _contacts_speeddial.number,
-							&number)!= CONTACTS_ERROR_NONE) {
-		error_code = BT_HFP_AGENT_ERROR_INTERNAL;
-		goto done;
-	}
+	contacts_record_get_str(record, _contacts_speeddial.number,
+							&number);
 
 	if (number == NULL) {
 		ERR("No number at the location \n");
@@ -1372,38 +1178,14 @@ static gboolean bt_hfp_agent_send_dtmf(BtHfpAgent *agent, const gchar *dtmf,
 	return TRUE;
 }
 
-static void __bt_hfp_agent_launch_voice_dial(gboolean activate)
-{
-	service_h service = NULL;
-
-	service_create(&service);
-
-	if (service == NULL) {
-		DBG("Service create failed");
-		return;
-	}
-
-	service_set_package(service, "com.samsung.svoice");
-	service_set_operation(service, SERVICE_OPERATION_DEFAULT);
-	service_add_extra_data(service, "domain", "bt_headset");
-
-	if (!activate)
-		service_add_extra_data(service, "action_type", "deactivate");
-
-	if (service_send_launch_request(service, NULL, NULL) !=
-						SERVICE_ERROR_NONE)
-		DBG("launch failed");
-
-	service_destroy(service);
-	return;
-}
-
 static gboolean bt_hfp_agent_voice_dial(BtHfpAgent *agent, gboolean activate,
 				DBusGMethodInvocation *context)
 {
+	DBG("+\n");
+
 	DBG("Activate = %d \n", activate);
 
-	__bt_hfp_agent_launch_voice_dial(activate);
+	/*App Selector code here needed*/
 	dbus_g_method_return(context);
 
 	DBG("-\n");
@@ -2005,12 +1787,14 @@ static void  __bt_hfp_agent_tel_cb(TapiHandle *handle,
 
 static void __bt_hfp_agent_sigterm_handler(int signo)
 {
-	if (gmain_loop) {
+	DBG("+\n");
+
+	if (gmain_loop)
 		g_main_loop_quit(gmain_loop);
-	} else {
-		DBG("Terminating HFP agent");
+	else
 		exit(0);
-	}
+
+	DBG("-\n");
 }
 
 int main(void)
@@ -2019,8 +1803,6 @@ int main(void)
 	BtHfpAgent *bt_hfp_obj = NULL;
 	struct sigaction sa;
 	int tapi_result;
-
-	DBG("Starting Bluetooth HFP agent");
 
 	g_type_init();
 
@@ -2073,6 +1855,5 @@ int main(void)
 	if (gmain_loop)
 		g_main_loop_unref(gmain_loop);
 
-	DBG("Terminating Bluetooth HFP agent");
 	return 0;
 }

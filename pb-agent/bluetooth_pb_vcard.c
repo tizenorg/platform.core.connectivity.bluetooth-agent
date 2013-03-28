@@ -2065,49 +2065,70 @@ static gint __bluetooth_pb_person_id_from_phonelog_id(gint phonelog_id)
 			CONTACTS_MATCH_EQUAL,
 			phonelog_id);
 
-	if (status != CONTACTS_ERROR_NONE)
-		goto done;
+	if (status != CONTACTS_ERROR_NONE) {
+		contacts_filter_destroy(filter);
+		return 0;
+	}
 
 	status = contacts_query_create(_contacts_person_phone_log._uri, &query);
 
-	if (status != CONTACTS_ERROR_NONE)
-		goto done;
+	if (status != CONTACTS_ERROR_NONE) {
+		contacts_filter_destroy(filter);
+		return 0;
+	}
 
 	status = contacts_query_set_filter(query, filter);
 
-	if (status != CONTACTS_ERROR_NONE)
-		goto done;
+	if (status != CONTACTS_ERROR_NONE) {
+		contacts_filter_destroy(filter);
+		contacts_query_destroy(query);
+		return 0;
+	}
 
 	status = contacts_db_get_records_with_query(query, -1, -1, &record_list);
 
-	if (status != CONTACTS_ERROR_NONE)
-		goto done;
+	if (status != CONTACTS_ERROR_NONE) {
+		contacts_filter_destroy(filter);
+		contacts_query_destroy(query);
+
+		return 0;
+	}
 
 	status = contacts_list_first(record_list);
 
-	if (status != CONTACTS_ERROR_NONE)
-		goto done;
+	if (status != CONTACTS_ERROR_NONE) {
+		contacts_list_destroy(record_list, TRUE);
+		contacts_filter_destroy(filter);
+		contacts_query_destroy(query);
+
+		return 0;
+	}
 
 	status = contacts_list_get_current_record_p(record_list, &record);
 
-	if (status != CONTACTS_ERROR_NONE)
-		goto done;
+	if (status != CONTACTS_ERROR_NONE) {
+		contacts_list_destroy(record_list, TRUE);
+		contacts_filter_destroy(filter);
+		contacts_query_destroy(query);
+
+		return 0;
+	}
 
 	status = contacts_record_get_int(record,
 			_contacts_person_phone_log.person_id,
 			&person_id);
 
-	if (status != CONTACTS_ERROR_NONE)
-		goto done;
-
-done:
-	if (record_list != NULL)
+	if (status != CONTACTS_ERROR_NONE) {
 		contacts_list_destroy(record_list, TRUE);
-
-	contacts_filter_destroy(filter);
-
-	if (query != NULL)
+		contacts_filter_destroy(filter);
 		contacts_query_destroy(query);
+
+		return 0;
+	}
+
+	contacts_list_destroy(record_list, TRUE);
+	contacts_filter_destroy(filter);
+	contacts_query_destroy(query);
 
 	return person_id;
 }

@@ -21,13 +21,11 @@
 #include <string.h>
 #include <glib.h>
 
-#include <ITapiNetText.h>
-
 #include <map_bmessage.h>
+
 #include <bluetooth_map_agent.h>
 
 #define CRLF_LEN 2
-#define BT_SMS_DATA_MAX_LEN 165
 
 #define BMSG_TAG "BEGIN:BMSG\r\n"
 #define VER_TAG "VERSION:"
@@ -110,122 +108,12 @@ void print_bmsg(struct bmsg_data *bmsg)
 	}
 }
 
-static gchar *__bt_unpack_gsm7bit_msg(const char* pdu, int in_len)
-{
-	int i;
-	int pos = 0;
-	int shift = 0;
-	gchar data[BT_SMS_DATA_MAX_LEN + 1] = {0,};
-
-	for (i = 0; i < in_len; i++) {
-		if (shift == 0) {
-			data[i] = pdu[pos] & 0x7F;
-
-			shift = 7;
-			pos++;
-		} else {
-			data[i] = (pdu[pos - 1] >> shift) |
-						(pdu[pos] << (8 - shift));
-			data[i] &= 0x7F;
-
-			shift--;
-			if (shift > 0)
-				pos++;
-		}
-	}
-
-	DBG("msg = %s\n", data);
-	return g_strdup(data);
-}
-
-static gchar *__bt_get_msg_body_from_pdu(gchar *pdu, guint64 pdu_len)
-{
-	int index = 0;
-	int i;
-	int j = 0;
-	int dcs;
-	int udh = 0;
-	int coding_scheme;
-	int phone_num_len = 0;
-	char temp[3];
-	char msg_data[BT_SMS_DATA_MAX_LEN + 1] = {0,};
-	unsigned char pdu_data[TAPI_NETTEXT_MSG_SIZE_MAX] = {0,};
-
-	for (i = 0; i < (pdu_len - 1);) {
-		snprintf(temp, sizeof(temp), "%c%c", pdu[i], pdu[i+1]);
-
-		pdu_data[j] = g_ascii_strtoull(temp, NULL, 16);
-		DBG("pdu_data = %02x\n", pdu_data[j]);
-		j++;
-		i = i + 2;
-	}
-
-	DBG("pdu[%d] = %x\n", index, pdu_data[index]);
-	if (pdu[index] == 0x00)
-		index++;
-	else
-		index = index + pdu_data[index];
-
-	/* TP-MTI */
-	index = index + 1;
-
-	if (pdu_data[index] & 0x40)
-		udh = 1;
-
-	DBG("udh = %d", udh);
-
-	/* TP-MR */
-	index = index + 1;
-
-	/* phone number length */
-	index = index + 1;
-	DBG("pdu[%d] = %x\n", index, pdu_data[index]);
-
-	if ((pdu_data[index] % 2) == 0)
-		phone_num_len = pdu_data[index] / 2;
-	else
-		phone_num_len = pdu_data[index] / 2 + 1;
-
-	DBG("phone_num_len [%d]\n", phone_num_len);
-
-	/* phone number type */
-	index = index + 1;
-
-	/* phone_num_len/2 encoded phone num length */
-	index = index + phone_num_len;
-
-	/* TP-PID */
-	index = index + 1;
-
-	/* TP-DCS */
-	index = index + 1;
-
-	dcs = pdu_data[index];
-	coding_scheme = (dcs & 0x0C) >> 2;
-	DBG("coding_scheme = %d\n", coding_scheme);
-
-	/* TP-VP */
-	index = index + 1;
-
-	/* TP-UDL */
-	index = index + 1;
-	int udl = pdu_data[index];
-	DBG("udl = %x\n", udl);
-
-	/* message body */
-	index = index + 1;
-
-	memcpy(msg_data, (void*)&pdu_data[index], udl);
-
-	return __bt_unpack_gsm7bit_msg(msg_data, udl);
-}
-
 char *bmsg_get_msg_folder(struct bmsg_data *bmsg)
 {
 	return g_strdup(bmsg->folder);
 }
 
-char *bmsg_get_msg_body(struct bmsg_data *bmsg, gboolean utf)
+char *bmsg_get_msg_body(struct bmsg_data *bmsg)
 {
 	struct benv_data *env_data;
 	int i = 0;
@@ -239,16 +127,8 @@ char *bmsg_get_msg_body(struct bmsg_data *bmsg, gboolean utf)
 			DBG("env_data->body_content->length = %"
 						G_GUINT64_FORMAT "\n",
 						env_data->body_content->length);
-
-			if (utf == FALSE) {
-				return __bt_get_msg_body_from_pdu(
-						env_data->body_content->msg,
-						env_data->body_content->length);
-			} else {
-				return g_strndup(
-						env_data->body_content->msg,
-						env_data->body_content->length);
-			}
+			return g_strndup(env_data->body_content->msg,
+								env_data->body_content->length);
 		}
 
 		i++;
@@ -281,8 +161,7 @@ GSList *bmsg_get_msg_recepients(struct bmsg_data *bmsg)
 
 			if (rvcard->tel != NULL) {
 				DBG("vcard->tel = %s\n", rvcard->tel);
-				receiver = g_slist_append(receiver,
-								rvcard->tel);
+				receiver = g_slist_append(receiver, rvcard->tel);
 			}
 
 			rvcard = g_slist_nth_data(env_data->recipient_vcard, k);
@@ -580,7 +459,7 @@ struct bmsg_envelope *bmsg_get_envelope_data(gchar **block_data)
 	return envelope_data;
 }
 
-struct bmsg_data *bmsg_parse(gchar *buf)
+struct bmsg_data * bmsg_parse(gchar *buf)
 {
 	gchar *block_data;
 	gchar *sub_block_data;
