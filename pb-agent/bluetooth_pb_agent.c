@@ -1278,6 +1278,7 @@ static void __bluetooth_pb_get_vcards(BluetoothPbAgent *agent,
 
 	if (status != CONTACTS_ERROR_NONE) {
 		contacts_list_destroy(record_list, TRUE);
+		contacts_query_destroy(query);
 		return;
 	}
 
