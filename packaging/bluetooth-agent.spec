@@ -5,6 +5,7 @@ Release:    2
 Group:      TO_BE/FILLED_IN
 License:    TO BE FILLED IN
 Source0:    %{name}-%{version}.tar.gz
+Source1001: 	bluetooth-agent.manifest
 
 BuildRequires:  pkgconfig(contacts-service2)
 BuildRequires:  pkgconfig(dbus-glib-1)
@@ -21,6 +22,7 @@ Bluetooth agent packages that support various external profiles
 
 %prep
 %setup -q
+cp %{SOURCE1001} .
 
 %build
 cmake . -DCMAKE_INSTALL_PREFIX=/usr
@@ -32,7 +34,7 @@ rm -rf %{buildroot}
 %make_install
 
 %files
-%manifest bluetooth-agent.manifest
+%manifest %{name}.manifest
 %defattr(-, root, root)
 %{_bindir}/bluetooth-map-agent
 %{_bindir}/bluetooth-pb-agent
