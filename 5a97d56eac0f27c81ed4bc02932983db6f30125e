@@ -1,0 +1,8 @@
+Change-Id: I5a97d56eac0f27c81ed4bc02932983db6f30125e
+Code-Review+2: Ryan Ware <ware@linux.intel.com>
+Verified+1: Ryan Ware <ware@linux.intel.com>
+Submitted-by: Ryan Ware <ware@linux.intel.com>
+Submitted-at: Mon, 08 Jul 2013 10:07:01 -0700
+Reviewed-on: https://review.tizen.org/gerrit/4514
+Project: platform/core/connectivity/bluetooth-agent
+Branch: refs/heads/tizen
