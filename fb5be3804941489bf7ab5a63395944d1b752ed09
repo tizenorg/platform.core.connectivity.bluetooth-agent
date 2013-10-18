@@ -1,0 +1,8 @@
+Code-Review+1: Rusty Lynch <rusty.lynch@intel.com>
+Code-Review+2: wu zheng <wu.zheng@intel.com>
+Verified+1: wu zheng <wu.zheng@intel.com>
+Submitted-by: wu zheng <wu.zheng@intel.com>
+Submitted-at: Thu, 17 Oct 2013 22:25:11 -0700
+Reviewed-on: https://review.tizen.org/gerrit/10952
+Project: platform/core/connectivity/bluetooth-agent
+Branch: refs/heads/tizen
