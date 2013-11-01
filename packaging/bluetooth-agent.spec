@@ -39,6 +39,6 @@ rm -rf %{buildroot}
 %{_bindir}/bluetooth-map-agent
 %{_bindir}/bluetooth-pb-agent
 %{_bindir}/bluetooth-hfp-agent
-%{_datadir}/dbus-1/services/org.bluez.pb_agent.service
+%{_datadir}/dbus-1/system-services/org.bluez.pb_agent.service
 %{_datadir}/dbus-1/services/org.bluez.map_agent.service
-%{_datadir}/dbus-1/services/org.bluez.hfp_agent.service
+%{_datadir}/dbus-1/system-services/org.bluez.hfp_agent.service

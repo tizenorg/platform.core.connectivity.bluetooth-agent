@@ -28,4 +28,4 @@ TARGET_LINK_LIBRARIES(${PROJECT_NAME} ${pkgs_hfp_agent_LDFLAGS})
 
 INSTALL(TARGETS ${PROJECT_NAME} DESTINATION bin)
 INSTALL(FILES ${CMAKE_CURRENT_SOURCE_DIR}/org.bluez.hfp_agent.service
-		DESTINATION share/dbus-1/services)
+		DESTINATION share/dbus-1/system-services)
