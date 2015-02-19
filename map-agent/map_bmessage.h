@@ -1,13 +1,17 @@
 /*
- * bluetooth-agent
+ * Bluetooth-agent
  *
- * Copyright (c) 2012-2013 Samsung Electronics Co., Ltd.
+ * Copyright (c) 2000 - 2011 Samsung Electronics Co., Ltd. All rights reserved.
+ *
+ * Contact:  Hocheol Seo <hocheol.seo@samsung.com>
+ *		 Girishashok Joshi <girish.joshi@samsung.com>
+ *		 Chanyeol Park <chanyeol.park@samsung.com>
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
  * You may obtain a copy of the License at
  *
- *              http://www.apache.org/licenses/LICENSE-2.0
+ *		http://www.apache.org/licenses/LICENSE-2.0
  *
  * Unless required by applicable law or agreed to in writing, software
  * distributed under the License is distributed on an "AS IS" BASIS,
@@ -62,8 +66,9 @@ struct bmsg_data {
 
 struct bmsg_data * bmsg_parse(gchar *buf);
 char *bmsg_get_msg_folder(struct bmsg_data *bmsg);
-char *bmsg_get_msg_body(struct bmsg_data *bmsg);
+char *bmsg_get_msg_body(struct bmsg_data *bmsg, gboolean utf);
 GSList *bmsg_get_msg_recepients(struct bmsg_data *bmsg);
+void bmsg_free_bmsg(struct bmsg_data *bmsg);
 
 #ifdef __cplusplus
 }

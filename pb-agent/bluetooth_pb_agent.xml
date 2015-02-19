@@ -28,6 +28,7 @@
 			<annotation name="org.freedesktop.DBus.GLib.Async" value=""/>
 			<arg type="s" name="name"/>
 			<arg type="a(ssu)" name="phonebook_list" direction="out"/>
+			<arg type="u" name="new_missed_call" direction="out"/>
 		</method>
 
 		<method name="GetPhonebookEntry">
@@ -47,6 +48,10 @@
 
 		<method name="AddContact">
 			<arg type="s" name="filename"/>
+		</method>
+
+		<method name="DestroyAgent">
+			<annotation name="org.freedesktop.DBus.GLib.Async" value=""/>
 		</method>
 
 		<signal name="clear"/>
