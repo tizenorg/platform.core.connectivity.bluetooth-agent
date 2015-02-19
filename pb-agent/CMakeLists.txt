@@ -8,7 +8,7 @@ INCLUDE_DIRECTORIES(${CMAKE_CURRENT_SOURCE_DIR})
 INCLUDE(FindPkgConfig)
 pkg_check_modules(pkgs_pb_agent
 		REQUIRED
-		dbus-glib-1 dlog contacts-service2 tapi vconf)
+		dbus-glib-1 dlog tapi vconf capi-media-image-util libexif)
 
 FOREACH(flag ${pkgs_pb_agent_CFLAGS})
 	SET(EXTRA_CFLAGS "${EXTRA_CFLAGS} ${flag}")
@@ -27,4 +27,4 @@ TARGET_LINK_LIBRARIES(${PROJECT_NAME} ${pkgs_pb_agent_LDFLAGS})
 
 INSTALL(TARGETS ${PROJECT_NAME} DESTINATION bin)
 INSTALL(FILES ${CMAKE_CURRENT_SOURCE_DIR}/org.bluez.pb_agent.service
-		DESTINATION share/dbus-1/system-services)
+		DESTINATION share/dbus-1/services)
