@@ -17,6 +17,8 @@
  *
  */
 
+#if 0
+
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -2085,8 +2087,12 @@ static gboolean bluetooth_map_noti_registration(BluetoothMapAgent *agent,
 	return TRUE;
 }
 
+#endif
+
+
 int main(int argc, char **argv)
 {
+#if 0
 	BluetoothMapAgent *bluetooth_map_obj = NULL;
 	DBusGProxy *bus_proxy = NULL;
 	guint result = 0;
@@ -2169,4 +2175,7 @@ int main(int argc, char **argv)
 
 	__bluetooth_map_stop_service();
 	return EXIT_FAILURE;
+#endif
+	return 0;
 }
+

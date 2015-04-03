@@ -17,6 +17,8 @@
  *
  */
 
+#if 0
+
 #include <stdio.h>
 #include <string.h>
 #include <glib.h>
@@ -518,3 +520,4 @@ parse_fail:
 	return NULL;
 }
 
+#endif
