@@ -41,7 +41,7 @@ export CFLAGS="$CFLAGS -DTIZEN_DEBUG_ENABLE"
 export CXXFLAGS="$CXXFLAGS -DTIZEN_DEBUG_ENABLE"
 export FFLAGS="$FFLAGS -DTIZEN_DEBUG_ENABLE"
 export CFLAGS="$CFLAGS -DTIZEN_MEDIA_ENHANCE"
-export CFLAGS="$CFLAGS -DTIZEN_BT_HFP_AG_ENABLE"
+#export CFLAGS="$CFLAGS -DTIZEN_BT_HFP_AG_ENABLE"
 
 %if "%{?profile}" == "wearable"
 export CFLAGS="$CFLAGS -DTIZEN_WEARABLE"
@@ -63,7 +63,7 @@ cmake . -DCMAKE_INSTALL_PREFIX=/usr \
 %else
         -DTIZEN_WEARABLE=0 \
 %endif
-        -DTIZEN_BT_HFP_AG_ENABLE=1
+#        -DTIZEN_BT_HFP_AG_ENABLE=1
 
 make VERBOSE=1
 
@@ -84,8 +84,8 @@ install -D -m 0644 LICENSE %{buildroot}%{_datadir}/license/bluetooth-agent
 %{_bindir}/bluetooth-pb-agent
 %{_datadir}/dbus-1/system-services/org.bluez.pb_agent.service
 %{_datadir}/dbus-1/system-services/org.bluez.map_agent.service
-%{_datadir}/dbus-1/system-services/org.bluez.ag_agent.service
-%{_bindir}/bluetooth-ag-agent
-%attr(0666,-,-) /opt/var/lib/bluetooth/voice-recognition-blacklist
+#%{_datadir}/dbus-1/system-services/org.bluez.ag_agent.service
+#%{_bindir}/bluetooth-ag-agent
+#%attr(0666,-,-) /opt/var/lib/bluetooth/voice-recognition-blacklist
 %endif
 %{_datadir}/license/bluetooth-agent
