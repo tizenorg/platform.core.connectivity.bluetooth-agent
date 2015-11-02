@@ -1,3 +1,5 @@
+%define _usrlibdir /usr/lib
+
 Name:       bluetooth-agent
 Summary:    Bluetooth agent packages that support various external profiles
 Version:    0.1.0
@@ -41,15 +43,13 @@ export CFLAGS="$CFLAGS -DTIZEN_DEBUG_ENABLE"
 export CXXFLAGS="$CXXFLAGS -DTIZEN_DEBUG_ENABLE"
 export FFLAGS="$FFLAGS -DTIZEN_DEBUG_ENABLE"
 export CFLAGS="$CFLAGS -DTIZEN_MEDIA_ENHANCE"
-#export CFLAGS="$CFLAGS -DTIZEN_BT_HFP_AG_ENABLE"
+export CFLAGS="$CFLAGS -DTIZEN_BT_HFP_AG_ENABLE"
 
 %if "%{?profile}" == "wearable"
 export CFLAGS="$CFLAGS -DTIZEN_WEARABLE"
 export CFLAGS="$CFLAGS -DTIZEN_SUPPORT_LUNAR_DEVICE"
 %else
-%if "%{?tizen_target_name}" == "Z130H"
 export CFLAGS="$CFLAGS -DTIZEN_KIRAN"
-%endif
 %endif
 
 export CFLAGS+=" -fpie -DPBAP_SIM_ENABLE"
@@ -63,7 +63,7 @@ cmake . -DCMAKE_INSTALL_PREFIX=/usr \
 %else
         -DTIZEN_WEARABLE=0 \
 %endif
-#        -DTIZEN_BT_HFP_AG_ENABLE=1
+        -DTIZEN_BT_HFP_AG_ENABLE=1
 
 make VERBOSE=1
 
@@ -72,6 +72,12 @@ rm -rf %{buildroot}
 %make_install
 
 install -D -m 0644 LICENSE %{buildroot}%{_datadir}/license/bluetooth-agent
+mkdir -p %{buildroot}%{_unitdir}/multi-user.target.wants
+install -m 0644 packaging/bluetooth-ag-agent.service %{buildroot}%{_unitdir}/
+ln -s ../bluetooth-ag-agent.service %{buildroot}%{_unitdir}/multi-user.target.wants/bluetooth-ag-agent.service
+#install -D -m 0644 packaging/bluetooth-ag-agent.service %{buildroot}%{_unitdir}/usr/lib/systemd/system/bluetooth-ag-agent.service
+#mkdir -p %{buildroot}%{_unitdir}/multi-user.target.wants
+#ln -s ../bluetooth-ag-agent.service %{buildroot}%{_unitdir}/multi-user.target.wants/bluetooth-ag-agent.service
 
 %files
 %manifest %{name}.manifest
@@ -80,12 +86,14 @@ install -D -m 0644 LICENSE %{buildroot}%{_datadir}/license/bluetooth-agent
 %{_bindir}/bluetooth-hf-agent
 %{_datadir}/dbus-1/system-services/org.bluez.hf_agent.service
 %else
+%{_bindir}/bluetooth-ag-agent
 %{_bindir}/bluetooth-map-agent
 %{_bindir}/bluetooth-pb-agent
 %{_datadir}/dbus-1/system-services/org.bluez.pb_agent.service
 %{_datadir}/dbus-1/system-services/org.bluez.map_agent.service
-#%{_datadir}/dbus-1/system-services/org.bluez.ag_agent.service
-#%{_bindir}/bluetooth-ag-agent
-#%attr(0666,-,-) /opt/var/lib/bluetooth/voice-recognition-blacklist
+%{_datadir}/dbus-1/system-services/org.bluez.ag_agent.service
+%{_usrlibdir}/systemd/system/bluetooth-ag-agent.service
+%{_usrlibdir}/systemd/system/multi-user.target.wants/bluetooth-ag-agent.service
+%attr(0666,-,-) /opt/var/lib/bluetooth/voice-recognition-blacklist
 %endif
 %{_datadir}/license/bluetooth-agent

@@ -1,0 +1,14 @@
+[Unit]
+Description=Service to launch AG agent.
+After=dbus.socket dbus.service
+Requires=dbus.socket
+
+[Service]
+Type=dbus
+BusName=org.bluez.ag_agent
+ExecStart=/usr/bin/bluetooth-ag-agent
+ExecStop=/usr/bin/killall bluetooth-ag-agent
+KillMode=process
+
+[Install]
+WantedBy=multi-user.target
