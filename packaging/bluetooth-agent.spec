@@ -73,11 +73,10 @@ rm -rf %{buildroot}
 
 install -D -m 0644 LICENSE %{buildroot}%{_datadir}/license/bluetooth-agent
 mkdir -p %{buildroot}%{_unitdir}/multi-user.target.wants
+%if "%{?profile}" != "wearable"
 install -m 0644 packaging/bluetooth-ag-agent.service %{buildroot}%{_unitdir}/
 ln -s ../bluetooth-ag-agent.service %{buildroot}%{_unitdir}/multi-user.target.wants/bluetooth-ag-agent.service
-#install -D -m 0644 packaging/bluetooth-ag-agent.service %{buildroot}%{_unitdir}/usr/lib/systemd/system/bluetooth-ag-agent.service
-#mkdir -p %{buildroot}%{_unitdir}/multi-user.target.wants
-#ln -s ../bluetooth-ag-agent.service %{buildroot}%{_unitdir}/multi-user.target.wants/bluetooth-ag-agent.service
+%endif
 
 %files
 %manifest %{name}.manifest
