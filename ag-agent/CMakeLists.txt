@@ -44,3 +44,6 @@ INSTALL(FILES ${CMAKE_CURRENT_SOURCE_DIR}/org.bluez.ag_agent.service
 
 INSTALL(FILES ${CMAKE_CURRENT_SOURCE_DIR}/voice-recognition-blacklist
 		DESTINATION /opt/var/lib/bluetooth/)
+
+CONFIGURE_FILE(${CMAKE_CURRENT_SOURCE_DIR}/bluetooth-ag-agent.conf.in ${CMAKE_CURRENT_SOURCE_DIR}/bluetooth-ag-agent.conf)
+INSTALL(FILES ${CMAKE_CURRENT_SOURCE_DIR}/bluetooth-ag-agent.conf DESTINATION /etc/dbus-1/system.d)
