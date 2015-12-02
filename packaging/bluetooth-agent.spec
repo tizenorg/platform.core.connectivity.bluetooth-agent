@@ -94,6 +94,6 @@ ln -s ../bluetooth-ag-agent.service %{buildroot}%{_unitdir}/multi-user.target.wa
 %{_usrlibdir}/systemd/system/bluetooth-ag-agent.service
 %{_usrlibdir}/systemd/system/multi-user.target.wants/bluetooth-ag-agent.service
 %attr(0666,-,-) /opt/var/lib/bluetooth/voice-recognition-blacklist
+%{_sysconfdir}/dbus-1/system.d/bluetooth-ag-agent.conf
 %endif
 %{_datadir}/license/bluetooth-agent
-%{_sysconfdir}/dbus-1/system.d/bluetooth-ag-agent.conf
