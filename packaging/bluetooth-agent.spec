@@ -13,7 +13,6 @@ Source1001: 	bluetooth-agent.manifest
 ExcludeArch: %{arm} %ix86 x86_64
 %endif
 
-Requires(post): sys-assert
 BuildRequires:  pkgconfig(aul)
 BuildRequires:  pkgconfig(bluetooth-api)
 %if "%{?profile}" == "wearable"
