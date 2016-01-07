@@ -2934,10 +2934,10 @@ static void __bt_ag_agent_method(GDBusConnection *connection,
 
 	if (g_strcmp0(method_name, "NewConnection") == 0) {
 		gint32 fd;
-		int index;
+		int index = 0;
 		GDBusMessage *msg;
 		GUnixFDList *fd_list;
-		GVariant *options;
+		GVariant *options = NULL;
 		int device_count = 0;
 		GSList *l;
 
@@ -3031,9 +3031,9 @@ static void __bt_ag_agent_method(GDBusConnection *connection,
 
 		g_dbus_method_invocation_return_value(invocation, NULL);
 	} else if (g_strcmp0(method_name, "IncomingCall") == 0) {
-		gchar *path;
-		gchar *number;
-		gint call_id;
+		gchar *path = NULL;
+		gchar *number = NULL;
+		gint call_id = 0;
 
 		g_variant_get(parameters, "(&s&si)", &path, &number, &call_id);
 
@@ -3048,9 +3048,9 @@ static void __bt_ag_agent_method(GDBusConnection *connection,
 			goto fail;
 		g_dbus_method_invocation_return_value(invocation, NULL);
 	} else if (g_strcmp0(method_name, "OutgoingCall") == 0) {
-		gchar *path;
-		gchar *number;
-		gint call_id;
+		gchar *path = NULL;
+		gchar *number = NULL;
+		gint call_id = 0;
 
 		g_variant_get(parameters, "(&s&si)", &path, &number, &call_id);
 
@@ -3065,10 +3065,10 @@ static void __bt_ag_agent_method(GDBusConnection *connection,
 			goto fail;
 		g_dbus_method_invocation_return_value(invocation, NULL);
 	} else if (g_strcmp0(method_name, "ChangeCallStatus") == 0) {
-		gchar *path;
-		gchar *number;
-		gint status;
-		gint call_id;
+		gchar *path = NULL;
+		gchar *number = NULL;
+		gint status = 0;
+		gint call_id = 0;
 		GSList *l;
 
 		g_variant_get(parameters, "(&s&sii)",
@@ -3321,7 +3321,7 @@ static void __bt_ag_agent_method(GDBusConnection *connection,
 		g_dbus_method_invocation_return_value(invocation,
 				g_variant_new("(q)", gain_value));
 	} else if (g_strcmp0(method_name, "SetSpeakerGain") == 0) {
-		guint16 gain;
+		guint16 gain = 0;
 		bt_ag_info_t *bt_ag_info = __bt_get_active_headset(remote_dev_path);
 
 		g_variant_get(parameters, "(q)", &gain);
@@ -3338,7 +3338,7 @@ static void __bt_ag_agent_method(GDBusConnection *connection,
 		g_dbus_method_invocation_return_value(invocation, NULL);
 	} else if (g_strcmp0(method_name, "GetMicrophoneGain") == 0) {
 		bt_ag_slconn_t *slconn = NULL;
-		guint16 gain_value;
+		guint16 gain_value = 0;
 		bt_ag_info_t *bt_ag_info = __bt_get_active_headset(remote_dev_path);
 
 		if (bt_ag_info == NULL) {
@@ -3358,7 +3358,7 @@ static void __bt_ag_agent_method(GDBusConnection *connection,
 		g_dbus_method_invocation_return_value(invocation,
 				g_variant_new("(q)", gain_value));
 	} else if (g_strcmp0(method_name, "SetMicrophoneGain") == 0) {
-		guint16 gain;
+		guint16 gain = 0;
 		bt_ag_info_t *bt_ag_info = __bt_get_active_headset(remote_dev_path);
 
 		g_variant_get(parameters, "(q)", &gain);
