@@ -76,10 +76,10 @@ rm -rf %{buildroot}
 
 install -D -m 0644 LICENSE %{buildroot}%{_datadir}/license/bluetooth-agent
 mkdir -p %{buildroot}%{_unitdir}/multi-user.target.wants
-%if "%{?profile}" != "wearable"
-install -m 0644 packaging/bluetooth-ag-agent.service %{buildroot}%{_unitdir}/
-ln -s ../bluetooth-ag-agent.service %{buildroot}%{_unitdir}/multi-user.target.wants/bluetooth-ag-agent.service
-%endif
+#%if "%{?profile}" != "wearable"
+#install -m 0644 packaging/bluetooth-ag-agent.service %{buildroot}%{_unitdir}/
+#ln -s ../bluetooth-ag-agent.service %{buildroot}%{_unitdir}/multi-user.target.wants/bluetooth-ag-agent.service
+#%endif
 
 %files
 %manifest %{name}.manifest
@@ -94,8 +94,8 @@ ln -s ../bluetooth-ag-agent.service %{buildroot}%{_unitdir}/multi-user.target.wa
 %{_datadir}/dbus-1/system-services/org.bluez.pb_agent.service
 %{_datadir}/dbus-1/system-services/org.bluez.map_agent.service
 %{_datadir}/dbus-1/system-services/org.bluez.ag_agent.service
-%{_usrlibdir}/systemd/system/bluetooth-ag-agent.service
-%{_usrlibdir}/systemd/system/multi-user.target.wants/bluetooth-ag-agent.service
+#%{_usrlibdir}/systemd/system/bluetooth-ag-agent.service
+#%{_usrlibdir}/systemd/system/multi-user.target.wants/bluetooth-ag-agent.service
 %attr(0666,-,-) /opt/var/lib/bluetooth/voice-recognition-blacklist
 %{_sysconfdir}/dbus-1/system.d/bluetooth-ag-agent.conf
 %endif
