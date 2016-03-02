@@ -9,7 +9,6 @@
 	    <allow own="Org.Hfp.App.Interface"/>
 	    <allow send_interface="Org.Hfp.App.Interface"/>
 	    <allow send_destination="Org.Hfp.App.Interface"/>
-	    <allow send_type="method_call"/>
     </policy>
 </busconfig>
 
