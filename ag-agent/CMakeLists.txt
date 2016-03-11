@@ -31,7 +31,7 @@ ENDFOREACH(flag)
 
 SET(CMAKE_C_FLAGS "${CMAKE_C_FLAGS} ${EXTRA_CFLAGS}")
 
-SET(APP_SYSCONFDIR /opt/var/lib/bluetooth)
+SET(APP_SYSCONFDIR /var/lib/bluetooth)
 
 ADD_DEFINITIONS("-DAPP_SYSCONFDIR=\"${APP_SYSCONFDIR}\"")
 
@@ -43,7 +43,7 @@ INSTALL(FILES ${CMAKE_CURRENT_SOURCE_DIR}/org.bluez.ag_agent.service
 		DESTINATION share/dbus-1/system-services)
 
 INSTALL(FILES ${CMAKE_CURRENT_SOURCE_DIR}/voice-recognition-blacklist
-		DESTINATION /opt/var/lib/bluetooth/)
+		DESTINATION /var/lib/bluetooth/)
 
 CONFIGURE_FILE(${CMAKE_CURRENT_SOURCE_DIR}/bluetooth-ag-agent.conf.in ${CMAKE_CURRENT_SOURCE_DIR}/bluetooth-ag-agent.conf)
 INSTALL(FILES ${CMAKE_CURRENT_SOURCE_DIR}/bluetooth-ag-agent.conf DESTINATION /etc/dbus-1/system.d)
