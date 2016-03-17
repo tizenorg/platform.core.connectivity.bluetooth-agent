@@ -2373,7 +2373,6 @@ void __bt_ag_agent_print_at_buffer(char *message, const char *buf)
 		}
 	}
 
-done:
 	/* +XSAT: 11,DISC */
 	xsat_ptr =  strstr(s, "11,DISC,");
 	if (xsat_ptr) {
@@ -2939,7 +2938,6 @@ static void __bt_ag_agent_method(GDBusConnection *connection,
 		GUnixFDList *fd_list;
 		GVariant *options = NULL;
 		int device_count = 0;
-		GSList *l;
 
 		device_count = g_slist_length(active_devices);
 
@@ -4137,7 +4135,6 @@ void _bt_ag_agent_check_transport_state(void)
 
 	if (transport_state == MEDIA_TRANSPORT_STATE_PLAYING) {
 		GDBusProxy *proxy;
-		GVariant *ret;
 		GError *err = NULL;
 
 		proxy =  g_dbus_proxy_new_sync(ag_dbus_conn,
@@ -4210,7 +4207,7 @@ static void __bt_ag_agent_media_filter_cb(GDBusConnection *connection,
 					iter, "{sv}", &key, &value_var)) {
 				DBG("key %s", key);
 				if (g_strcmp0(key, "State") == 0) {
-					value = g_variant_get_string(
+					value = (gchar *)g_variant_get_string(
 								value_var,
 								NULL);
 					DBG("value %s", value);
@@ -4331,8 +4328,6 @@ int main(void)
 	pthread_t thread_id;
 
 	INFO_C("Starting Bluetooth AG agent");
-
-	g_type_init();
 
 	ag_features = __bt_ag_agent_get_ag_features();
 

@@ -148,6 +148,9 @@ int _bt_find_phonebook_entries_response(void *t_device,
 int _bt_response_and_hold_response(void *t_device,
 					bt_hfp_agent_error_t err);
 int _bt_answer_call_response(void *hs, bt_hfp_agent_error_t err);
+int _bt_read_phonebook_entries_indicator(const char *name,
+					const char *number,
+					uint32_t handle);
 int _bt_hfp_get_activity_status_rsp(void *t_device,
 						int status,
 						bt_hfp_agent_error_t err);

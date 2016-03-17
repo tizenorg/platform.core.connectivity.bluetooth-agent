@@ -686,7 +686,7 @@ static void __bluetooth_pb_vcard_append_tel_v21(GString *string,
 						contacts_record_h contact)
 {
 	FN_START;
-	guint count = 0;
+	gint count = 0;
 
 	gint i;
 	gint status;
@@ -1051,7 +1051,7 @@ static void __bluetooth_pb_vcard_append_bday_v21(GString *string,
 						contacts_record_h contact)
 {
 	FN_START;
-	guint count = 0;
+	gint count = 0;
 
 	gint status;
 	gint i;
@@ -1110,7 +1110,7 @@ static void __bluetooth_pb_vcard_append_adr_v21(GString *string,
 						contacts_record_h contact)
 {
 	FN_START;
-	guint count = 0;
+	gint count = 0;
 
 	gint status;
 	gint i;
@@ -1164,7 +1164,7 @@ static void __bluetooth_pb_vcard_append_email_v21(GString *string,
 						contacts_record_h contact)
 {
 	FN_START;
-	guint count = 0;
+	gint count = 0;
 
 	gint status;
 	gint i;
@@ -1208,7 +1208,7 @@ static void __bluetooth_pb_vcard_append_title_v21(GString *string,
 						contacts_record_h contact)
 {
 	FN_START;
-	guint count = 0;
+	gint count = 0;
 
 	gint status;
 	gint i;
@@ -1252,7 +1252,7 @@ static void __bluetooth_pb_vcard_append_role_v21(GString *string,
 						contacts_record_h contact)
 {
 	FN_START;
-	guint count = 0;
+	gint count = 0;
 
 	gint status;
 	gint i;
@@ -1296,7 +1296,7 @@ static void __bluetooth_pb_vcard_append_org_v21(GString *string,
 						contacts_record_h contact)
 {
 	FN_START;
-	guint count = 0;
+	gint count = 0;
 
 	gint status;
 	gint i;
@@ -1371,7 +1371,7 @@ static void __bluetooth_pb_vcard_append_note_v21(GString *string,
 						contacts_record_h contact)
 {
 	FN_START;
-	guint count = 0;
+	gint count = 0;
 
 	gint status;
 	gint i;
@@ -1448,7 +1448,7 @@ static void __bluetooth_pb_vcard_append_url_v21(GString *string,
 						contacts_record_h contact)
 {
 	FN_START;
-	guint count = 0;
+	gint count = 0;
 
 	gint i;
 	gint status;
@@ -2392,7 +2392,7 @@ static gchar *__bluetooth_pb_phonetic_name_from_contact(contacts_record_h contac
 static gchar *__bluetooth_pb_number_from_contact(contacts_record_h contact)
 {
 	FN_START;
-	guint count = 0;
+	gint count = 0;
 
 	gint status;
 	gint i;

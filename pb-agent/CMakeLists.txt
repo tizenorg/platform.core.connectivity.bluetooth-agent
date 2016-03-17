@@ -13,7 +13,7 @@ pkg_check_modules(pkgs_pb_agent
 FOREACH(flag ${pkgs_pb_agent_CFLAGS})
 	SET(EXTRA_CFLAGS "${EXTRA_CFLAGS} ${flag}")
 ENDFOREACH(flag)
-SET(CMAKE_C_FLAGS "${CMAKE_C_FLAGS} ${EXTRA_CFLAGS}")
+SET(CMAKE_C_FLAGS "${CMAKE_C_FLAGS} ${EXTRA_CFLAGS} -fPIC -Wall -Werror")
 
 FIND_PROGRAM(DBUS_BINDING_TOOL NAMES dbus-binding-tool)
 EXEC_PROGRAM("${DBUS_BINDING_TOOL}"
