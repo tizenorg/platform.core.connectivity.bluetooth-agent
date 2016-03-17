@@ -1869,8 +1869,8 @@ static int __bt_hfp_get_phonebook_entries(int start_index, int end_index)
 				g_variant_unref(value);
 				g_free(uni_name);
 				g_free(uni_number);
-				g_free(name);
-				g_free(number);
+				g_free((gpointer)name);
+				g_free((gpointer)number);
 			}
 			g_variant_unref(tuple);
 		}

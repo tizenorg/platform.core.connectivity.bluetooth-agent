@@ -52,18 +52,6 @@
 #define FN_END
 #endif
 
-static gchar *bluetooth_pb_agent_folder_list[] = {
-	"/telecom/pb",
-	"/telecom/ich",
-	"/telecom/och",
-	"/telecom/mch",
-	"/telecom/cch",
-#ifdef PBAP_SIM_ENABLE
-	"/SIM1/telecom/pb",
-#endif
-	NULL
-};
-
 typedef enum {
 	TELECOM_PB = 0,
 	TELECOM_ICH,

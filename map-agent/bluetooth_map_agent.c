@@ -2127,8 +2127,6 @@ int main(void)
 	GError *error = NULL;
 	DBG("Starting Bluetooth MAP agent");
 
-	g_type_init();
-
 	g_mainloop = g_main_loop_new(NULL, FALSE);
 
 	if (g_mainloop == NULL) {

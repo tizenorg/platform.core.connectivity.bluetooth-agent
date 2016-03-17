@@ -69,6 +69,18 @@ enum {
 	LAST_SIGNAL
 };
 
+static gchar *bluetooth_pb_agent_folder_list[] = {
+	"/telecom/pb",
+	"/telecom/ich",
+	"/telecom/och",
+	"/telecom/mch",
+	"/telecom/cch",
+#ifdef PBAP_SIM_ENABLE
+	"/SIM1/telecom/pb",
+#endif
+	NULL
+};
+
 GType bluetooth_pb_agent_get_type(void);
 
 #define BLUETOOTH_PB_TYPE_AGENT (bluetooth_pb_agent_get_type())
@@ -2290,8 +2302,6 @@ int main(void)
 
 	struct sigaction sa;
 	DBG("Starting Bluetooth PBAP agent");
-
-	g_type_init();
 
 	mainloop = g_main_loop_new(NULL, FALSE);
 	if (mainloop == NULL) {

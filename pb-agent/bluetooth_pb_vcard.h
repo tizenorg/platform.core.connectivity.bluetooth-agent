@@ -63,4 +63,6 @@ gchar *_bluetooth_pb_owner_name(void);
 
 bool _bt_is_sim_addressbook(const char *addressbook);
 
+int _bluetooth_get_contact_addressbook(gint person_id);
+
 #endif
