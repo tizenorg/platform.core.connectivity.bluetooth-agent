@@ -899,7 +899,7 @@ static char *__bt_prepare_msg_bmseg(msg_struct_t msg_info, gboolean attach,
 					MSG_MESSAGE_SMS_DATA_STR,
 					msg_body, BT_MAP_MSG_BODY_MAX);
 		if (ret == MSG_SUCCESS) {
-			g_string_append_printf(msg, LENGTH, strlen(msg_body));
+			g_string_append_printf(msg, LENGTH, (int)strlen(msg_body));
 			g_string_append_printf(msg, MSG_BODY, msg_body);
 		}
 	} else {
@@ -994,7 +994,7 @@ static struct message_info __bt_message_info_get(msg_struct_t msg_struct_handle)
 	ret = msg_get_int_value(msg_struct_handle, MSG_MESSAGE_ID_INT, &msg_id);
 	if (ret == MSG_SUCCESS) {
 		uid = __bt_add_id(msg_id);
-		snprintf(msg_handle, sizeof(msg_handle), "%llx", uid);
+		snprintf(msg_handle, sizeof(msg_handle), "%llx", (long long unsigned int)uid);
 	}
 	msg_info.handle = g_strdup(msg_handle);
 
