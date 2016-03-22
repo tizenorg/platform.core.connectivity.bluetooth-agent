@@ -3332,12 +3332,9 @@ static uint32_t __bt_hf_agent_get_hf_features(void)
 int main(void)
 {
 	struct sigaction sa;
-	const char *pkg_name = "org.tizen.hf_agent";
 	uint32_t hf_features;
 
 	INFO("Starting Bluetooth HF agent");
-
-	g_type_init();
 
 	hf_features = __bt_hf_agent_get_hf_features();
 	bt_hf_info.feature = (uint16_t) hf_features & 0x3F;
