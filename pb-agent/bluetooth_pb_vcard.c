@@ -2055,7 +2055,10 @@ static gchar **__bluetooth_pb_contact_tel_param(contacts_record_h number)
 			(gint *)&type);
 
 	if (status != CONTACTS_ERROR_NONE)
+	{
+		g_free(strv);
 		return NULL;
+	}
 
 	if (type & CONTACTS_NUMBER_TYPE_HOME) {
 		strv[i] = g_strdup("HOME");
