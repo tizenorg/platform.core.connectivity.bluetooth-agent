@@ -1066,8 +1066,6 @@ next:
 	msg_release_struct(&msg);
 	msg_release_struct(&send_opt);
 
-	g_free(msg_info.handle);
-
 	ret = msg_get_int_value(msg_struct_handle,
 				MSG_MESSAGE_DISPLAY_TIME_INT, &dptime);
 	if (ret == MSG_SUCCESS) {
@@ -1698,7 +1696,7 @@ static gboolean bluetooth_map_get_message_list(BluetoothMapAgent *agent,
 	if (ret != MSG_SUCCESS)
 		goto fail;
 
-	count = msg_list.nCount;
+	count = (guint64)msg_list.nCount;
 
 	for (i = 0; i < count; i++) {
 		msg_get_bool_value(msg_list.msg_struct_info[i],
