@@ -765,7 +765,7 @@ static gboolean __bt_hf_monitor_timer_cb(gpointer data)
 
 		/* In the case of ATD, prev_cmd will be always ATD, because we will not
 		 * allow further commands. For safer side again set prev_cmd as ATD */
-		strcpy(prev_cmd, "ATD");
+		strncpy(prev_cmd, "ATD\0", BT_HF_CMD_BUF_SIZE - 1);
 	}
 	hf_handle_rx_at_cmd(&bt_hf_info, BT_HF_ERROR_RESP);
 
