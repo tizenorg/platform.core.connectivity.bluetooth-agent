@@ -3010,11 +3010,7 @@ static void __bt_ag_agent_method(GDBusConnection *connection,
 		if (ret)
 			goto fail;
 
-		if (local_addr)
-			g_free(local_addr);
-
-		local_addr = g_strdup(address);
-		DBG("Address = %s\n", local_addr);
+		DBG("Address = %s\n", address);
 		g_dbus_method_invocation_return_value(invocation, NULL);
 	} else if (g_strcmp0(method_name, "UnregisterApplication") == 0) {
 		gchar *path = NULL;
@@ -3978,13 +3974,15 @@ static void __bt_ag_agent_filter_cb(GDBusConnection *connection,
 {
 	FN_START;
 	char *path = NULL;
-	GVariant *optional_param;
+	GVariant *optional_param = NULL;
 
 	if (strcasecmp(signal_name, "InterfacesAdded") == 0) {
 
 		g_variant_get(parameters, "(&o@a{sa{sv}})",
 							&path, &optional_param);
 		if (!path) {
+			if (optional_param)
+				g_variant_unref(optional_param);
 			ERR("Invalid adapter path");
 			return;
 		}
@@ -4002,6 +4000,8 @@ static void __bt_ag_agent_filter_cb(GDBusConnection *connection,
 	} else if (strcasecmp(signal_name, "InterfacesRemoved") == 0) {
 		g_variant_get(parameters, "(&o@as)", &path, &optional_param);
 		if (!path) {
+			if (optional_param)
+				g_variant_unref(optional_param);
 			ERR("Invalid adapter path");
 			return;
 		}
@@ -4015,6 +4015,9 @@ static void __bt_ag_agent_filter_cb(GDBusConnection *connection,
 			__bt_ag_agent_unregister(path);
 		}
 	}
+
+	if (optional_param)
+		g_variant_unref(optional_param);
 
 	FN_END;
 }
@@ -4229,6 +4232,12 @@ static void __bt_ag_agent_media_filter_cb(GDBusConnection *connection,
 			__bt_ag_agent_transport_state_update("Disconnect");
 		}
 	}
+
+	if (dict_param)
+		g_variant_unref(dict_param);
+
+	if (optional_param)
+		g_variant_unref(optional_param);
 
 	FN_END;
 }
