@@ -4230,6 +4230,12 @@ static void __bt_ag_agent_media_filter_cb(GDBusConnection *connection,
 		}
 	}
 
+	if (dict_param)
+		g_variant_unref(dict_param);
+
+	if (optional_param)
+		g_variant_unref(optional_param);
+
 	FN_END;
 }
 #endif
