@@ -33,6 +33,7 @@ BuildRequires:  pkgconfig(capi-appfw-application)
 BuildRequires:  pkgconfig(capi-media-image-util)
 BuildRequires:  pkgconfig(libexif)
 BuildRequires:  cmake
+Requires: security-config
 
 %description
 Bluetooth agent packages that support various external profiles
