@@ -67,7 +67,9 @@ struct bmsg_data {
 struct bmsg_data * bmsg_parse(gchar *buf);
 char *bmsg_get_msg_folder(struct bmsg_data *bmsg);
 char *bmsg_get_msg_body(struct bmsg_data *bmsg, gboolean utf);
-GSList *bmsg_get_msg_recepients(struct bmsg_data *bmsg);
+GSList *bmsg_get_msg_recepients(struct bmsg_data *bmsg, int msg_type);
+gboolean bmsg_parse_msg_body(const char *message,
+			char **body, char **subject);
 void bmsg_free_bmsg(struct bmsg_data *bmsg);
 
 #ifdef __cplusplus

@@ -26,8 +26,7 @@
 #include <string.h>
 #include <unistd.h>
 #include <glib.h>
-#include <dbus/dbus-glib.h>
-#include <dbus/dbus.h>
+#include <gio/gio.h>
 #include <time.h>
 #include "vconf.h"
 #include "vconf-keys.h"
@@ -47,29 +46,14 @@
 #include <TapiUtility.h>
 #include <ITapiNetText.h>
 #include <bluetooth_map_agent.h>
+#include <bluetooth_map_email.h>
+#include <bluetooth_map_sms.h>
 #include <map_bmessage.h>
 
 #define OBEX_CLIENT_SERVICE "org.bluez.obex"
 #define OBEX_CLIENT_INTERFACE "org.bluez.obex.Client1"
 #define OBEX_CLIENT_PATH "/org/bluez/obex"
-
 #define MNS_CLIENT_INTERFACE "org.openobex.MessageNotification"
-
-#define DBUS_STRUCT_STRING_STRING_UINT (dbus_g_type_get_struct("GValueArray", \
-		G_TYPE_STRING, G_TYPE_STRING,  G_TYPE_STRING, G_TYPE_INVALID))
-
-#define DBUS_STRUCT_MESSAGE_LIST (dbus_g_type_get_struct("GValueArray", \
-		G_TYPE_STRING, G_TYPE_STRING,  G_TYPE_STRING, G_TYPE_STRING, \
-		G_TYPE_STRING, G_TYPE_STRING,  G_TYPE_STRING, G_TYPE_STRING, \
-		G_TYPE_STRING, G_TYPE_STRING,   G_TYPE_BOOLEAN, G_TYPE_STRING, \
-		G_TYPE_BOOLEAN, G_TYPE_BOOLEAN, G_TYPE_BOOLEAN, \
-		G_TYPE_BOOLEAN, G_TYPE_STRING, \
-		G_TYPE_INVALID))
-
-static msg_handle_t g_msg_handle = NULL;
-static TapiHandle *g_tapi_handle = NULL;
-static TelSmsAddressInfo_t *g_sca_info = NULL;
-static DBusGProxy *g_mns_proxy;
 
 #define BT_MAP_NEW_MESSAGE "NewMessage"
 #define BT_MAP_STATUS_CB "sent status callback"
@@ -82,33 +66,18 @@ static DBusGProxy *g_mns_proxy;
 #define BT_MAP_MSG_INFO_MAX 256
 #define BT_MAP_MSG_HANDLE_MAX 21
 #define BT_MAP_TIMESTAMP_MAX_LEN 16
-#define BT_MAP_SUBJECT_MAX_LEN 50
 #define BT_MAP_MSG_BODY_MAX 1024
 #define BT_MSG_UPDATE	0
 #define BT_MSG_DELETE	1
 #define BT_SMS 0
 
-#define BEGIN_BMSEG "BEGIN:BMSG\r\n"
-#define END_BMSEG "END:BMSG\r\n"
-#define BMSEG_VERSION "VERSION:1.0\r\n"
-#define MSEG_STATUS "STATUS:%s\r\n"
-#define MSEG_TYPE "TYPE:%s\r\n"
-#define FOLDER_PATH "FOLDER:%s\r\n"
-#define VCARD "BEGIN:VCARD\r\nVERSION:2.1\r\nN:%s\r\nTEL:%s\r\nEND:VCARD\r\n"
-#define BEGIN_BENV "BEGIN:BENV\r\n"
-#define END_BENV "END:BENV\r\n"
-#define BEGIN_BBODY "BEGIN:BBODY\r\n"
-#define END_BBODY "END:BBODY\r\n"
-#define ENCODING "ENCODING:%s\r\n"
-#define CHARSET "CHARSET:%s\r\n"
-#define LANGUAGE "LANGUAGE:%s\r\n"
-#define LENGTH "LENGTH:%d\r\n"
-#define MSG_BODY "BEGIN:MSG\r\n%s\r\nEND:MSG\r\n"
-#define MSG_BODY_BEGIN "BEGIN:MSG\r\n"
-#define MSG_BODY_END "\r\nEND:MSG\r\n"
+static TapiHandle *g_tapi_handle;
+static TelSmsAddressInfo_t *g_sca_info;
 
 GSList *id_list = NULL;
 guint64 current_push_map_id;
+char *push_folder;
+msg_send_option_t opt;
 
 typedef enum {
 	SMS_TON_UNKNOWN = 0,		/* unknown */
@@ -124,215 +93,342 @@ typedef enum {
 struct id_info {
 	guint64 map_id;
 	int uid;
+	int msg_type;
 };
 
-struct msg_send_option {
-	bool save_copy;
-	bool retry_send;
-	bool native;
-};
+/* Store supported folders in SMS and EMAIL */
+gboolean folders_supported[FOLDER_COUNT][MSG_TYPES] = { {FALSE, FALSE}, };
 
-struct message_info {
-	char *handle;
-	char *subject;
-	char *datetime;
-	char *sender_name;
-	char *sender_addressing;
-	char *recipient_name;
-	char *recipient_addressing;
-	char *type;
-	char *size;
-	char *reception_status;
-	char *attachment_size;
-	char *replyto_addressing;
-	gboolean text;
-	gboolean priority;
-	gboolean read;
-	gboolean sent;
-	gboolean protect;
-};
+GMainLoop *g_mainloop;
+static char *g_mns_path;
+static GDBusConnection *map_dbus_conn;
+static GDBusProxy *g_mns_proxy;
 
-typedef struct {
-	GObject parent;
-} BluetoothMapAgent;
+static const gchar map_agent_introspection_xml[] =
+"<node name='/'>"
+"	<interface name='org.bluez.MapAgent'>"
+"		<method name='GetFolderTree'>"
+"			<arg type='a(s)' name='folder_list' direction='out'/>"
+"		</method>"
+"		<method name='GetMessageList'>"
+"			<arg type='s' name='folder_name'/>"
+"			<arg type='q' name='max'/>"
+"			<arg type='q' name='offset'/>"
+"			<arg type='y' name='subject_len'/>"
+"			<arg type='a{sv}' name='filters'/>"
+"			<arg type='b' name='newmessage' direction='out'/>"
+"			<arg type='t' name='count' direction='out'/>"
+"			<arg type='a(ssssssssssbsbbbbs)' name='msg_list' direction='out'/>"
+"		</method>"
+"		<method name='GetMessage'>"
+"			<arg type='s' name='message_name'/>"
+"			<arg type='b' name='attach'/>"
+"			<arg type='b' name='transcode'/>"
+"			<arg type='b' name='first_request'/>"
+"			<arg type='b' name='fraction_deliver' direction='out'/>"
+"			<arg type='s' name='msg_body' direction='out'/>"
+"		</method>"
+"		<method name='PushMessage'>"
+"			<arg type='b' name='save_copy'/>"
+"			<arg type='b' name='retry_send'/>"
+"			<arg type='b' name='native'/>"
+"			<arg type='s' name='folder_name'/>"
+"			<arg type='t' name='handle' direction='out'/>"
+"		</method>"
+"		<method name='PushMessageData'>"
+"			<arg type='s' name='bmsg'/>"
+"		</method>"
+"		<method name='UpdateMessage'>"
+"			<arg type='u' name='update_err' direction='out'/>"
+"		</method>"
+"		<method name='SetReadStatus'>"
+"			<arg type='s' name='handle'/>"
+"			<arg type='b' name='read_status'/>"
+"			<arg type='u' name='update_err' direction='out'/>"
+"		</method>"
+"		<method name='SetDeleteStatus'>"
+"			<arg type='s' name='handle'/>"
+"			<arg type='b' name='delete_status'/>"
+"			<arg type='u' name='update_err' direction='out'/>"
+"		</method>"
+"		<method name='NotiRegistration'>"
+"			<arg type='s' name='remote_addr'/>"
+"			<arg type='b' name='status'/>"
+"			<arg type='u' name='update_err' direction='out'/>"
+"		</method>"
+"		<method name='DestroyAgent'>"
+"		</method>"
+"	</interface>"
+"</node>";
 
-typedef struct {
-	GObjectClass parent;
-} BluetoothMapAgentClass;
+/* Method Prototypes */
+static GVariant *__bt_map_get_folder_tree(GError **err);
+static GVariant *__bt_map_get_message_list(char *folder_name, guint16 max,
+				guint16 offset, guint8 subject_len,
+				map_msg_filter_t *filter, GError **err);
+static GVariant *__bt_map_get_message(char *message_name, gboolean attach,
+		gboolean transcode, gboolean first_request, GError **err);
+static GVariant *__bt_map_push_message(gboolean save_copy,  gboolean retry_send,
+		gboolean native, char *folder_name, GError **err);
+static GVariant *__bt_map_push_message_data(char *bmseg, GError **err);
+static GVariant *__bt_map_update_message(GError **err);
+static GVariant *__bt_map_set_read_status(char *handle, gboolean read_status, GError **err);
+static GVariant *__bt_map_set_delete_status(char *handle, gboolean delete_status, GError **err);
+static void __bt_map_noti_registration(char *remote_addr, gboolean status);
+static void __bt_map_destroy_agent(void);
 
-GType bluetooth_map_agent_get_type(void);
-
-#define BLUETOOTH_MAP_TYPE_AGENT (bluetooth_map_agent_get_type())
-
-#define BLUETOOTH_MAP_AGENT(object) \
-	(G_TYPE_CHECK_INSTANCE_CAST((object), \
-	BLUETOOTH_MAP_TYPE_AGENT , BluetoothMapAgent))
-#define BLUETOOTH_MAP_AGENT_CLASS(klass) \
-	(G_TYPE_CHECK_CLASS_CAST((klass), \
-	BLUETOOTH_MAP_TYPE_AGENT , BluetoothMapAgentClass))
-#define BLUETOOTH_MAP_IS_AGENT(object) \
-	(G_TYPE_CHECK_INSTANCE_TYPE((object), \
-	BLUETOOTH_MAP_TYPE_AGENT))
-#define BLUETOOTH_MAP_IS_AGENT_CLASS(klass) \
-	(G_TYPE_CHECK_CLASS_TYPE((klass), \
-	BLUETOOTH_MAP_TYPE_AGENT))
-#define BLUETOOTH_MAP_AGENT_GET_CLASS(obj) \
-	(G_TYPE_INSTANCE_GET_CLASS((obj), \
-	BLUETOOTH_MAP_TYPE_AGENT , BluetoothMapAgentClass))
-
-G_DEFINE_TYPE(BluetoothMapAgent, bluetooth_map_agent, G_TYPE_OBJECT)
-
-GMainLoop *g_mainloop = NULL;
-static DBusGConnection *g_connection = NULL;
-static char *g_mns_path = NULL;
-static struct msg_send_option opt;
-
-static gboolean bluetooth_map_get_folder_tree(BluetoothMapAgent *agent,
-					DBusGMethodInvocation *context);
-static gboolean bluetooth_map_get_message_list(BluetoothMapAgent *agent,
-					gchar *folder_name, guint16 max,
-					DBusGMethodInvocation *context);
-static gboolean bluetooth_map_get_message(BluetoothMapAgent *agent,
-					gchar *message_name,
-					gboolean attach, gboolean transcode,
-					gboolean first_request,
-					DBusGMethodInvocation *context);
-static gboolean bluetooth_map_push_message(BluetoothMapAgent *agent,
-					gboolean save_copy,
-					gboolean retry_send,
-					gboolean native,
-					gchar *folder_name,
-					DBusGMethodInvocation *context);
-static gboolean bluetooth_map_push_message_data(BluetoothMapAgent *agent,
-					gchar *bmsg,
-					DBusGMethodInvocation *context);
-static gboolean bluetooth_map_update_message(BluetoothMapAgent *agent,
-					DBusGMethodInvocation *context);
-static gboolean bluetooth_map_set_read_status(BluetoothMapAgent *agent,
-					gchar *handle, gboolean read_status,
-					DBusGMethodInvocation *context);
-static gboolean bluetooth_map_set_delete_status(BluetoothMapAgent *agent,
-					gchar *handle, gboolean delete_status,
-					DBusGMethodInvocation *context);
-static gboolean bluetooth_map_noti_registration(BluetoothMapAgent *agent,
-					gchar *remote_addr,
-					gboolean status,
-					DBusGMethodInvocation *context);
-static gboolean bluetooth_map_destroy_agent(BluetoothMapAgent *agent,
-					DBusGMethodInvocation *context);
-
-#include "bluetooth_map_agent_glue.h"
-
-static void bluetooth_map_agent_init(BluetoothMapAgent *obj)
+/* Create GError from error code and error message */
+static GError *__bt_map_error(int error_code, char *error_message)
 {
-	FN_START;
-	g_assert(obj != NULL);
-	FN_END;
+	return g_error_new(g_quark_from_string("MAP Agent"),
+			error_code, "MAP Agent Error: %s", error_message);
 }
 
-static void bluetooth_map_agent_finalize(GObject *obj)
+static map_msg_filter_t __bt_map_get_filters(GVariant *filters)
 {
-	FN_START;
-	G_OBJECT_CLASS(bluetooth_map_agent_parent_class)->finalize(obj);
-	FN_END;
-}
+	map_msg_filter_t filter = { 0, };
+	GVariantIter iter;
+	GVariant *value;
+	gchar *key;
 
-static void bluetooth_map_agent_class_init(BluetoothMapAgentClass *klass)
-{
-	FN_START;
-	GObjectClass *object_class = (GObjectClass *) klass;
-
-	g_assert(klass != NULL);
-
-	object_class->finalize = bluetooth_map_agent_finalize;
-
-	dbus_g_object_type_install_info(BLUETOOTH_MAP_TYPE_AGENT,
-					&dbus_glib_bluetooth_map_object_info);
-	FN_END;
-}
-
-static GQuark __bt_map_agent_error_quark(void)
-{
-	FN_START;
-	static GQuark quark = 0;
-	if (!quark)
-		quark = g_quark_from_static_string("agent");
-
-	FN_END;
-	return quark;
-}
-
-static GError *__bt_map_agent_error(bt_map_agent_error_t error,
-				     const char *err_msg)
-{
-	FN_START;
-	return g_error_new(BT_MAP_AGENT_ERROR, error, err_msg, NULL);
-}
-
-static void __bt_mns_client_event_notify(gchar *event, guint64 handle,
-					gchar *folder, gchar *old_folder,
-					gchar *msg_type);
-
-static char *__bt_get_truncated_utf8_string(char *src)
-{
-	FN_START;
-	char *p = src;
-	char *next;
-	char dest[BT_MAP_SUBJECT_MAX_LEN] = {0,};
-	int count;
-	int i = 0;
-
-	if (src == NULL)
-		return FALSE;
-
-	while (*p != '\0' && i < sizeof(dest)) {
-		next = g_utf8_next_char(p);
-		count = next - p;
-
-		while (count > 0 && ((i + count) < sizeof(dest))) {
-			dest[i++] = *p;
-			p++;
-			count --;
+	g_variant_iter_init(&iter, filters);
+	while (g_variant_iter_loop(&iter, "{sv}", &key, &value)) {
+		if (!g_strcmp0(key, "ParameterMask")) {
+			filter.parameter_mask = g_variant_get_uint32(value);
+			DBG("ParameterMask :%u", filter.parameter_mask);
+		} else if (!g_strcmp0(key, "FilterMessageType")) {
+			filter.type = g_variant_get_byte(value);
+			DBG("FilterMessageType :%u", filter.type);
+		} else if (!g_strcmp0(key, "FilterPeriodBegin")) {
+			g_variant_get(value, "s", &filter.period_begin);
+			DBG("FilterPeriodBegin :%s", filter.period_begin);
+		} else if (!g_strcmp0(key, "FilterPeriodEnd")) {
+			g_variant_get(value, "s", &filter.period_end);
+			DBG("FilterPeriodEnd :%s", filter.period_end);
+		} else if (!g_strcmp0(key, "FilterReadStatus")) {
+			filter.read_status = g_variant_get_byte(value);
+			DBG("FilterReadStatus :%u", filter.read_status);
+		} else if (!g_strcmp0(key, "FilterRecipient")) {
+			g_variant_get(value, "s", &filter.recipient);
+			DBG("FilterRecipient :%s", filter.recipient);
+		} else if (!g_strcmp0(key, "FilterOriginator")) {
+			g_variant_get(value, "s", &filter.originator);
+			DBG("FilterOriginator :%s", filter.originator);
+		} else if (!g_strcmp0(key, "FilterPriority")) {
+			filter.priority = g_variant_get_byte(value);
+			DBG("FilterPriority :%u", filter.priority);
 		}
-		p = next;
+	}
+
+	return filter;
+}
+
+static void __bt_map_agent_method(GDBusConnection *connection,
+			const gchar *sender,
+			const gchar *object_path,
+			const gchar *interface_name,
+			const gchar *method_name,
+			GVariant *parameters,
+			GDBusMethodInvocation *invocation,
+			gpointer user_data)
+{
+	FN_START;
+
+	INFO("method %s", method_name);
+	INFO("object_path %s", object_path);
+	GError *err = NULL;
+
+	if (g_strcmp0(method_name, "GetFolderTree") == 0) {
+		GVariant *folder_list = NULL;
+
+		folder_list = __bt_map_get_folder_tree(&err);
+		if (err)
+			goto fail;
+
+		g_dbus_method_invocation_return_value(invocation, folder_list);
+	} else if (g_strcmp0(method_name, "GetMessageList") == 0) {
+		GVariant *message_list = NULL;
+		guint16 max;
+		guint16 offset;
+		guint8 subject_len;
+		gchar *folder_name;
+		GVariant *filters = NULL;
+		map_msg_filter_t filter = { 0, };
+
+		g_variant_get(parameters, "(&sqqy@a{sv})", &folder_name,
+				&max, &offset, &subject_len, &filters);
+
+		DBG("MAX:%d Offset:%d SubjectLen:%d", max, offset, subject_len);
+		if (subject_len == 0)
+			subject_len = BT_MAP_SUBJECT_MAX_LEN;
+
+		filter = __bt_map_get_filters(filters);
+		message_list = __bt_map_get_message_list(folder_name, max,
+				offset, subject_len, &filter, &err);
+
+		if (err)
+			goto fail;
+
+		g_dbus_method_invocation_return_value(invocation, message_list);
+	} else if (g_strcmp0(method_name, "GetMessage") == 0) {
+		GVariant *message = NULL;
+		gchar *message_name;
+		gboolean attach;
+		gboolean transcode;
+		gboolean first_request;
+
+		g_variant_get(parameters, "(&sbbb)", &message_name,
+				&attach, &transcode, &first_request);
+
+		message = __bt_map_get_message(message_name, attach,
+				transcode, first_request, &err);
+		if (err)
+			goto fail;
+
+		g_dbus_method_invocation_return_value(invocation, message);
+	} else if (g_strcmp0(method_name, "PushMessage") == 0) {
+		GVariant *handle = NULL;
+		gboolean save_copy;
+		gboolean retry_send;
+		gboolean native;
+		gchar *folder_name;
+
+		g_variant_get(parameters, "(bbb&s)", &save_copy,
+				&retry_send, &native, &folder_name);
+
+		handle = __bt_map_push_message(save_copy, retry_send,
+				native, folder_name, &err);
+		if (err)
+			goto fail;
+
+		g_dbus_method_invocation_return_value(invocation, handle);
+	} else if (g_strcmp0(method_name, "PushMessageData") == 0) {
+		gchar *bmseg;
+
+		g_variant_get(parameters, "(&s)", &bmseg);
+
+		__bt_map_push_message_data(bmseg, &err);
+		if (err)
+			goto fail;
+
+		g_dbus_method_invocation_return_value(invocation, NULL);
+	} else if (g_strcmp0(method_name, "UpdateMessage") == 0) {
+		GVariant *update = NULL;
+
+		update = __bt_map_update_message(&err);
+		if (err)
+			goto fail;
+
+		g_dbus_method_invocation_return_value(invocation, update);
+	} else if (g_strcmp0(method_name, "SetReadStatus") == 0) {
+		gchar *handle;
+		gboolean read_status;
+
+		g_variant_get(parameters, "(&sb)", &handle, &read_status);
+
+		__bt_map_set_read_status(handle, read_status, &err);
+		if (err)
+			goto fail;
+
+		g_dbus_method_invocation_return_value(invocation, NULL);
+	} else if (g_strcmp0(method_name, "SetDeleteStatus") == 0) {
+		gchar *handle;
+		gboolean delete_status;
+
+		g_variant_get(parameters, "(&sb)", &handle, &delete_status);
+
+		__bt_map_set_delete_status(handle, delete_status, &err);
+		if (err)
+			goto fail;
+
+		g_dbus_method_invocation_return_value(invocation, NULL);
+	} else if (g_strcmp0(method_name, "NotiRegistration") == 0) {
+		char *remote_addr;
+		gboolean status;
+		g_variant_get(parameters, "(&sb)", &remote_addr, &status);
+
+		__bt_map_noti_registration(remote_addr, status);
+		g_dbus_method_invocation_return_value(invocation, NULL);
+	} else if (g_strcmp0(method_name, "DestroyAgent") == 0) {
+		g_dbus_method_invocation_return_value(invocation, NULL);
+		__bt_map_destroy_agent();
+	}
+
+	INFO("-");
+	return;
+
+fail:
+	g_dbus_method_invocation_return_gerror(invocation, err);
+	g_error_free(err);
+	INFO("-");
+}
+
+static const GDBusInterfaceVTable method_table = {
+	__bt_map_agent_method,
+	NULL,
+	NULL,
+};
+
+static GDBusConnection *__bt_map_get_gdbus_connection(void)
+{
+	FN_START;
+
+	GError *err = NULL;
+
+	if (map_dbus_conn)
+		return map_dbus_conn;
+
+	map_dbus_conn = g_bus_get_sync(G_BUS_TYPE_SESSION, NULL, &err);
+	if (!map_dbus_conn) {
+		if (err) {
+			ERR("Unable to connect to dbus: %s", err->message);
+			g_clear_error(&err);
+		}
+		return NULL;
 	}
 
 	FN_END;
-	return g_strdup(dest);
+	return map_dbus_conn;
 }
 
-static guint64 __bt_validate_uid(int uid)
+gboolean is_mns_connected(void)
+{
+	if (!g_mns_proxy)
+		return FALSE;
+	else
+		return TRUE;
+}
+
+guint64 _bt_validate_uid(int uid, int msg_type)
 {
 	FN_START;
 	struct id_info *info;
-	int count;
-	int i;
+	GSList *list = id_list;
 
-	count = g_slist_length(id_list);
-	for (i = 0; i < count; i++) {
-		info = (struct id_info *)g_slist_nth_data(id_list, i);
-		if (!info)
-			break;
+	while (list) {
+		info = list->data;
 
-		if (info->uid == uid) {
-			DBG("uid = %d\n", uid);
+		if (info && info->uid == uid && info->msg_type == msg_type) {
+			DBG("UID = %d, MessageType=%d", uid, msg_type);
 			return info->map_id;
 		}
+
+		list = g_slist_next(list);
 	}
 
 	FN_END;
 	return 0;
 }
 
-static guint64 __bt_add_id(int uid)
+guint64 _bt_add_id(int uid, int msg_type)
 {
 	FN_START;
 	static guint64 map_id;
 	struct id_info *info;
 	guint64 test;
 
-	DBG("Add id: %d\n", uid);
-	test = __bt_validate_uid(uid);
+	DBG("Add id: %d, MsgType:%d", uid, msg_type);
+	test = _bt_validate_uid(uid, msg_type);
 	DBG("test: %llx\n", test);
 	if (test)
 		return test;
@@ -343,7 +439,8 @@ static guint64 __bt_add_id(int uid)
 
 	info->map_id = map_id;
 	info->uid = uid;
-	DBG("map_id = %llx, uid = %d \n", info->map_id, info->uid);
+	info->msg_type = msg_type;
+	DBG("map_id = %llx, uid = %d, MsgType=%d", info->map_id, info->uid, msg_type);
 
 	id_list = g_slist_append(id_list, info);
 
@@ -351,61 +448,60 @@ static guint64 __bt_add_id(int uid)
 	return map_id;
 }
 
-static int __bt_get_id(guint64 map_id)
+static struct id_info *__bt_get_id(guint64 map_id)
 {
 	FN_START;
 	struct id_info *info;
-	int count;
-	int i;
+	GSList *list = id_list;
 
-	count = g_slist_length(id_list);
-
-	for (i = 0; i < count; i++) {
-		info = (struct id_info *)g_slist_nth_data(id_list, i);
+	while (list) {
+		info = list->data;
 
 		if (info->map_id == map_id)
-			return info->uid;
+			return info;
+
+		list = g_slist_next(list);
 	}
 
 	FN_END;
-	return -1;
+	return NULL;
 }
 
-static int __bt_get_uid(gchar *handle)
+static struct id_info *__bt_get_uid(gchar *handle)
 {
 	FN_START;
 	guint64 map_id;
-	int uid;
+	struct id_info *handle_info;
 
-	if (NULL == handle)
-		return -1;
+	if (handle == NULL)
+		return NULL;
 
 	map_id = g_ascii_strtoull(handle, NULL, 16);
 	if (!map_id)
-		return -1;
+		return NULL;
 
-	uid = __bt_get_id(map_id);
+	handle_info = __bt_get_id(map_id);
 
 	FN_END;
-	return uid;
+	return handle_info;
 }
 
-static int __bt_update_id(guint64 map_id, int new_uid)
+int _bt_update_id(guint64 map_id, int new_uid, int msg_type)
 {
 	FN_START;
 	struct id_info *info;
-	int i;
-	int count;
+	GSList *list = id_list;
 
-	count = g_slist_length(id_list);
-
-	for (i = 0; i < count; i++) {
-		info = g_slist_nth_data(id_list, i);
+	while (list) {
+		info = list->data;
 
 		if (info->map_id == map_id) {
 			info->uid = new_uid;
+			info->msg_type = msg_type;
 			return map_id;
 		}
+
+		list = g_slist_next(list);
 	}
 
 	FN_END;
@@ -423,146 +519,57 @@ static void __bt_remove_list(GSList *id_list)
 	FN_END;
 }
 
-static int __bt_get_folder_id(char *folder_path)
+gboolean _bt_verify_sender(message_info_t *msg_info, char *sender)
 {
-	FN_START;
-	int folder_id = -1;
-	int i;
-	char *folder;
-	msg_struct_list_s folder_list = {0,};
-	msg_error_t err;
-	msg_struct_t p_folder;
-	DBG_SECURE("folder_path %s\n", folder_path);
+	if (!sender)
+		return TRUE;
 
-	folder = strrchr(folder_path, '/');
-	if (NULL == folder)
-		folder = folder_path;
-	else
-		folder++;
+	if (!g_strcmp0(sender, "*"))
+		return TRUE;
 
-	err = msg_get_folder_list(g_msg_handle, &folder_list);
-	if (err != MSG_SUCCESS)
-		goto done;
+	if (g_strrstr(msg_info->sender_name, sender) ||
+			g_strrstr(msg_info->sender_addressing, sender))
+		return TRUE;
 
-	for (i = 0; i < folder_list.nCount; i++) {
-		char folder_name[BT_MAP_MSG_INFO_MAX] = {0, };
-
-		p_folder = folder_list.msg_struct_info[i];
-
-		err = msg_get_str_value(p_folder, MSG_FOLDER_INFO_NAME_STR,
-					folder_name, BT_MAP_MSG_INFO_MAX);
-		if (err != MSG_SUCCESS)
-			continue;
-
-		DBG_SECURE("folder_name %s\n", folder_name);
-		if (!g_ascii_strncasecmp(folder_name, folder, strlen(folder))) {
-			err = msg_get_int_value(p_folder,
-					MSG_FOLDER_INFO_ID_INT,
-					&folder_id);
-			if (err != MSG_SUCCESS)
-				goto done;
-
-			DBG("folder_id %d", folder_id);
-			break;
-		}
-	}
-
-done:
-	if (folder_list.msg_struct_info)
-		msg_release_list_struct(&folder_list);
-
-	FN_END;
-	return folder_id;
-
+	return FALSE;
 }
 
-static void __bt_add_deleted_folder(void)
+gboolean _bt_verify_receiver(message_info_t *msg_info, char *receiver)
 {
-	FN_START;
-	msg_error_t err;
-	msg_struct_t folder_info = msg_create_struct(MSG_STRUCT_FOLDER_INFO);
+	if (!receiver)
+		return TRUE;
 
-	err = msg_set_int_value(folder_info, MSG_FOLDER_INFO_TYPE_INT,
-						MSG_FOLDER_TYPE_USER_DEF);
-	if (err != MSG_SUCCESS) {
-		ERR("Failed adding type %d", err);
-		msg_release_struct(&folder_info);
-		return;
-	}
+	if (!g_strcmp0(receiver, "*"))
+		return TRUE;
 
-	err = msg_set_str_value(folder_info, MSG_FOLDER_INFO_NAME_STR,
-					"DELETED", MAX_FOLDER_NAME_SIZE);
-	if (err != MSG_SUCCESS) {
-		ERR("Failed adding str %d", err);
-		msg_release_struct(&folder_info);
-		return;
-	}
+	if (g_strrstr(msg_info->recipient_name, receiver) ||
+			g_strrstr(msg_info->recipient_addressing, receiver))
+		return TRUE;
 
-	err = msg_add_folder(g_msg_handle, folder_info);
-	if (err != MSG_SUCCESS) {
-		ERR("Failed adding folder %d", err);
-		msg_release_struct(&folder_info);
-		return;
-	}
-
-	msg_release_struct(&folder_info);
-	FN_END;
+	return FALSE;
 }
 
-static gchar *__bt_get_folder_name(int id)
+gboolean _bt_verify_read_status(message_info_t *msg_info, guint8 read_status)
 {
-	FN_START;
-	int ret;
-	int i;
-	int folder_id;
-	gboolean path_found = FALSE;
-	char folder_name[BT_MAP_MSG_INFO_MAX] = {0,};
+	if (read_status == FILTER_READ_STATUS_ALL ||
+			((read_status == FILTER_READ_STATUS_UNREAD) && msg_info->read == FALSE) ||
+			((read_status == FILTER_READ_STATUS_READ) && msg_info->read == TRUE))
+		return TRUE;
 
-	msg_struct_list_s folder_list = {0,};
-	msg_struct_t p_folder;
-
-	ret = msg_get_folder_list(g_msg_handle, &folder_list);
-	if (ret != MSG_SUCCESS)
-		return g_strdup("TELECOM/MSG");
-
-	if (folder_list.msg_struct_info == NULL)
-		return g_strdup("TELECOM/MSG");
-
-	for (i = 0; i < folder_list.nCount; i++) {
-		p_folder = folder_list.msg_struct_info[i];
-
-		ret = msg_get_int_value(p_folder,
-					MSG_FOLDER_INFO_ID_INT,
-					&folder_id);
-		if (ret != MSG_SUCCESS)
-			break;
-		DBG("folder_id %d, id = %d", folder_id, id);
-		if (folder_id == id) {
-			ret = msg_get_str_value(p_folder,
-					MSG_FOLDER_INFO_NAME_STR,
-					folder_name, BT_MAP_MSG_INFO_MAX);
-			if (ret != MSG_SUCCESS)
-				break;
-
-			path_found = TRUE;
-			DBG_SECURE("folder_name %s", folder_name);
-			break;
-		}
-	}
-
-	if (folder_list.msg_struct_info) {
-		ret = msg_release_list_struct(&folder_list);
-		ERR("Err %d", ret);
-	}
-
-	FN_END;
-	if (path_found != TRUE)
-		return g_strdup("TELECOM/MSG");
-	else
-		return g_strdup_printf("TELECOM/MSG/%s", folder_name);
+	return FALSE;
 }
 
-static void __get_msg_timestamp(time_t *ltime, char *timestamp)
+gboolean _bt_filter_priority(message_info_t *msg_info, guint8 priority)
+{
+	if (priority == FILTER_PRIORITY_ALL ||
+			((priority == FILTER_PRIORITY_HIGH) && msg_info->priority == TRUE) ||
+			((priority == FILTER_PRIORITY_LOW) && msg_info->priority == FALSE))
+		return TRUE;
+
+	return FALSE;
+}
+
+void _get_msg_timestamp(time_t *ltime, char *timestamp)
 {
 	FN_START;
 	struct tm local_time;
@@ -579,7 +586,54 @@ static void __get_msg_timestamp(time_t *ltime, char *timestamp)
 					local_time.tm_min, local_time.tm_sec);
 
 	FN_END;
-	return;
+}
+
+time_t _get_time_t_from_timestamp(char *timestamp)
+{
+	struct tm local_time;
+	int year;
+	int month;
+	time_t int_time;
+
+	sscanf(timestamp, "%04d%02d%02dT%02d%02d%02d", &year, &month,
+			&local_time.tm_mday, &local_time.tm_hour,
+			&local_time.tm_min, &local_time.tm_sec);
+
+	local_time.tm_year = year - 1900;
+	local_time.tm_mon = month - 1;
+
+	int_time = mktime(&local_time);
+	return int_time;
+}
+
+gboolean _bt_verify_time(message_info_t *msg_info, map_msg_filter_t *filter)
+{
+	struct tm local_time = { 0, };
+	time_t start;
+	time_t end;
+
+	/* Set 19710101T000000 as Start Date */
+	local_time.tm_year = 1971 - 1900;
+	local_time.tm_mon = 0;
+	local_time.tm_mday = 1;
+	start = mktime(&local_time);
+
+	/* Set 20380101T000000 as End Date */
+	local_time.tm_year = 2038 - 1900;
+	local_time.tm_mon = 0;
+	local_time.tm_mday = 1;
+	end = mktime(&local_time);
+
+	if (filter->period_begin)
+		start = _get_time_t_from_timestamp(filter->period_begin);
+
+	if (filter->period_end)
+		end = _get_time_t_from_timestamp(filter->period_end);
+
+	if (msg_info->time >= start && msg_info->time <= end)
+		return TRUE;
+
+	return FALSE;
 }
 
 #define SET_TON_NPI(dest, ton, npi) {	\
@@ -744,7 +798,7 @@ static int __bt_sms_encode_time(gchar *addr_field, time_t *tm)
 	return index;
 }
 
-static gchar *__bt_get_sms_pdu_from_msg_data(gchar *number,
+gchar *__bt_get_sms_pdu_from_msg_data(gchar *number,
 						char *msg, time_t tm,
 						int *msg_pdu_len)
 {
@@ -811,457 +865,39 @@ static void __bt_get_sms_sca(TapiHandle *handle, int result, void *data,
 	FN_END;
 }
 
-static char *__bt_prepare_msg_bmseg(msg_struct_t msg_info, gboolean attach,
-							gboolean transcode)
+void _bt_message_info_free(gpointer data)
 {
 	FN_START;
-	int ret;
-	int m_type = MSG_TYPE_SMS;
-	int folder_id;
-	int count;
-	int dptime = 0;
-	int j;
-	bool read_status = false;
-	char msg_body[BT_MAP_MSG_BODY_MAX] = {0,};
-	char addr_value[MAX_ADDRESS_VAL_LEN] = {0,};
-	char name_value[MAX_DISPLAY_NAME_LEN] = {0,};
-
-	msg_list_handle_t addr_list = NULL;
-	msg_struct_t addr_info = NULL;
-
-	GString *msg;
-	gchar *folder_path = NULL;
-	gchar *msg_pdu;
-
-	msg = g_string_new(BEGIN_BMSEG);
-	g_string_append(msg, BMSEG_VERSION);
-
-	ret = msg_get_bool_value(msg_info, MSG_MESSAGE_READ_BOOL, &read_status);
-	if (ret == MSG_SUCCESS) {
-		INFO("read_status %d\n", read_status);
-	}
-
-	if (read_status)
-		g_string_append_printf(msg, MSEG_STATUS, "READ");
-	else
-		g_string_append_printf(msg, MSEG_STATUS, "UNREAD");
-
-	ret = msg_get_int_value(msg_info, MSG_MESSAGE_TYPE_INT, &m_type);
-	if (ret == MSG_SUCCESS) {
-		INFO("m_type %d\n", m_type);
-		 g_string_append_printf(msg, MSEG_TYPE, "SMS_GSM");
-	}
-
-	ret = msg_get_int_value(msg_info, MSG_MESSAGE_FOLDER_ID_INT,
-							&folder_id);
-	if (ret == MSG_SUCCESS) {
-		DBG("folder_id %d\n", folder_id);
-
-		folder_path = __bt_get_folder_name(folder_id);
-		g_string_append_printf(msg, FOLDER_PATH, folder_path);
-	}
-
-	ret = msg_get_list_handle(msg_info, MSG_MESSAGE_ADDR_LIST_HND,
-						(void **)&addr_list);
-	if (ret == MSG_SUCCESS) {
-		count = msg_list_length(addr_list);
-		DBG("count %d \n", count);
-
-		if (count > 0) {
-			addr_info = (msg_struct_t)msg_list_nth_data(addr_list,
-									0);
-
-			msg_get_str_value(addr_info,
-					MSG_ADDRESS_INFO_ADDRESS_VALUE_STR,
-					addr_value, MAX_ADDRESS_VAL_LEN);
-			DBG_SECURE("addr_value %s\n", addr_value);
-			msg_get_str_value(addr_info,
-					MSG_ADDRESS_INFO_DISPLAYNAME_STR,
-					name_value, MAX_DISPLAY_NAME_LEN);
-			if (!strlen(name_value))
-				g_stpcpy(name_value, addr_value);
-
-			DBG_SECURE("name_value %s\n", name_value);
-
-			g_string_append_printf(msg, VCARD, name_value,
-								addr_value);
-		}
-	}
-
-	g_string_append(msg, BEGIN_BENV);
-	g_string_append(msg, BEGIN_BBODY);
-
-	if (transcode) {
-		g_string_append_printf(msg, CHARSET, "UTF-8");
-
-
-		ret = msg_get_str_value(msg_info,
-					MSG_MESSAGE_SMS_DATA_STR,
-					msg_body, BT_MAP_MSG_BODY_MAX);
-		if (ret == MSG_SUCCESS) {
-			g_string_append_printf(msg, LENGTH, (int)strlen(msg_body));
-			g_string_append_printf(msg, MSG_BODY, msg_body);
-		}
-	} else {
-		g_string_append_printf(msg, ENCODING, "G-7BIT");
-		g_string_append_printf(msg, CHARSET, "native");
-
-		msg_get_int_value(msg_info,
-				MSG_MESSAGE_DISPLAY_TIME_INT, &dptime);
-
-		ret = msg_get_str_value(msg_info, MSG_MESSAGE_SMS_DATA_STR,
-					msg_body, BT_MAP_MSG_BODY_MAX);
-		if (ret == MSG_SUCCESS) {
-			int msg_pdu_len = 0;
-			msg_pdu = __bt_get_sms_pdu_from_msg_data(addr_value,
-							msg_body, dptime,
-							&msg_pdu_len);
-			if (msg_pdu) {
-				DBG("msg_pdu_len = %d", msg_pdu_len);
-
-				g_string_append_printf(msg, LENGTH, msg_pdu_len);
-				g_string_append(msg, MSG_BODY_BEGIN);
-				for (j = 0; j < msg_pdu_len; j++)
-					g_string_append_printf(msg, "%02x",
-									msg_pdu[j]);
-
-				g_string_append(msg, MSG_BODY_END);
-				g_free(msg_pdu);
-			}
-		}
-	}
-
-	g_string_append(msg, END_BBODY);
-	g_string_append(msg, END_BENV);
-	g_string_append(msg, END_BMSEG);
-	g_free(folder_path);
-
+	message_info_t *msg_info = (message_info_t *)data;
+	g_free(msg_info->handle);
+	g_free(msg_info->subject);
+	g_free(msg_info->datetime);
+	g_free(msg_info->sender_name);
+	g_free(msg_info->sender_addressing);
+	g_free(msg_info->replyto_addressing);
+	g_free(msg_info->recipient_name);
+	g_free(msg_info->recipient_addressing);
+	g_free(msg_info->type);
+	g_free(msg_info->reception_status);
+	g_free(msg_info->size);
+	g_free(msg_info->attachment_size);
+	g_free(msg_info);
 	FN_END;
-	return g_string_free(msg, FALSE);
-}
-
-static void __bt_message_info_free(struct message_info msg_info)
-{
-	FN_START;
-	g_free(msg_info.handle);
-	g_free(msg_info.subject);
-	g_free(msg_info.datetime);
-	g_free(msg_info.sender_name);
-	g_free(msg_info.sender_addressing);
-	g_free(msg_info.replyto_addressing);
-	g_free(msg_info.recipient_name);
-	g_free(msg_info.recipient_addressing);
-	g_free(msg_info.type);
-	g_free(msg_info.reception_status);
-	g_free(msg_info.size);
-	g_free(msg_info.attachment_size);
-	FN_END;
-}
-
-static struct message_info __bt_message_info_get(msg_struct_t msg_struct_handle)
-{
-	FN_START;
-	struct message_info msg_info = {0,};
-	int ret;
-	int msg_id;
-	guint64 uid;
-	int dptime;
-	int m_type = 0;
-	int data_size;
-	int priority;
-	int direction_type;
-	int count;
-	bool protect_status = 0;
-	bool read_status = 0;
-
-	char msg_handle[BT_MAP_MSG_HANDLE_MAX] = {0,};
-	char msg_datetime[BT_MAP_TIMESTAMP_MAX_LEN] = {0,};
-	char msg_size[5] = {0,};
-	char msg_body[BT_MAP_MSG_BODY_MAX] = {0,};
-	char addr_value[MAX_ADDRESS_VAL_LEN] = {0,};
-	char name_value[MAX_DISPLAY_NAME_LEN] = {0,};
-
-	msg_info.text = FALSE;
-	msg_info.protect = FALSE;
-	msg_info.read = FALSE;
-	msg_info.priority = FALSE;
-
-	msg_struct_t msg = NULL;
-	msg_struct_t send_opt = NULL;
-	msg_list_handle_t addr_list = NULL;
-	msg_struct_t addr_info = NULL;
-
-	ret = msg_get_int_value(msg_struct_handle, MSG_MESSAGE_ID_INT, &msg_id);
-	if (ret == MSG_SUCCESS) {
-		uid = __bt_add_id(msg_id);
-		snprintf(msg_handle, sizeof(msg_handle), "%llx", (long long unsigned int)uid);
-	}
-	msg_info.handle = g_strdup(msg_handle);
-
-	msg = msg_create_struct(MSG_STRUCT_MESSAGE_INFO);
-	if (msg == NULL)
-		goto next;
-
-	send_opt = msg_create_struct(MSG_STRUCT_SENDOPT);
-	if (send_opt == NULL)
-		goto next;
-
-	ret = msg_get_message(g_msg_handle,
-						(msg_message_id_t)msg_id,
-						msg, send_opt);
-	if (ret != MSG_SUCCESS) {
-		DBG("ret = %d\n", ret);
-		goto next;
-	}
-
-	ret = msg_get_list_handle(msg, MSG_MESSAGE_ADDR_LIST_HND,
-							(void **)&addr_list);
-	if (ret != MSG_SUCCESS) {
-		DBG("ret = %d\n", ret);
-		goto next;
-	}
-
-	count = msg_list_length(addr_list);
-
-	if (count != 0) {
-		addr_info = (msg_struct_t)msg_list_nth_data(addr_list, 0);
-
-		ret = msg_get_str_value(addr_info,
-					MSG_ADDRESS_INFO_ADDRESS_VALUE_STR,
-					addr_value, MAX_ADDRESS_VAL_LEN);
-		if (ret == MSG_SUCCESS)
-			DBG_SECURE("addr_value %s\n", addr_value);
-
-		ret = msg_get_str_value(addr_info,
-					MSG_ADDRESS_INFO_DISPLAYNAME_STR,
-					name_value, MAX_DISPLAY_NAME_LEN);
-
-		if (ret == MSG_SUCCESS)
-			DBG_SECURE("name_value %s\n", name_value);
-
-		if (!strlen(name_value))
-			g_stpcpy(name_value, addr_value);
-
-		DBG_SECURE("name_value %s\n", name_value);
-	}
-
-	ret = msg_get_int_value(msg, MSG_MESSAGE_DIRECTION_INT,
-						&direction_type);
-	if (ret != MSG_SUCCESS)
-		goto next;
-
-	if (direction_type == MSG_DIRECTION_TYPE_MT) {
-		msg_info.sender_name = g_strdup(name_value);
-		msg_info.sender_addressing = g_strdup(addr_value);
-		msg_info.recipient_name = g_strdup("Unknown");
-		msg_info.recipient_addressing = g_strdup("0000");
-	} else {
-		msg_info.sender_name = g_strdup("Unknown");
-		msg_info.sender_addressing = g_strdup("0000");
-		msg_info.recipient_name = g_strdup(name_value);
-		msg_info.recipient_addressing = g_strdup(addr_value);
-	}
-
-next:
-	msg_release_struct(&msg);
-	msg_release_struct(&send_opt);
-
-	ret = msg_get_int_value(msg_struct_handle,
-				MSG_MESSAGE_DISPLAY_TIME_INT, &dptime);
-	if (ret == MSG_SUCCESS) {
-		__get_msg_timestamp((time_t *)&dptime, msg_datetime);
-	}
-	msg_info.datetime = g_strdup(msg_datetime);
-
-	ret = msg_get_int_value(msg_struct_handle, MSG_MESSAGE_TYPE_INT,
-								&m_type);
-	if (ret == MSG_SUCCESS) {
-		DBG("m_type %d\n", m_type);
-	}
-
-	msg_info.type = g_strdup("SMS_GSM");
-
-	ret = msg_get_str_value(msg_struct_handle,
-				MSG_MESSAGE_SMS_DATA_STR, msg_body,
-				BT_MAP_MSG_BODY_MAX);
-	if (ret == MSG_SUCCESS) {
-		DBG_SECURE("SMS subject %s", msg_body);
-		if (strlen(msg_body)) {
-			msg_info.text = TRUE ;
-			msg_info.subject = __bt_get_truncated_utf8_string(msg_body);
-		}
-	}
-
-	ret = msg_get_int_value(msg_struct_handle, MSG_MESSAGE_DATA_SIZE_INT,
-								&data_size);
-	if (ret == MSG_SUCCESS)
-		snprintf(msg_size, sizeof(msg_size), "%d", data_size);
-
-	msg_info.size = g_strdup(msg_size);
-
-	msg_info.reception_status = g_strdup("complete");
-	msg_info.attachment_size = g_strdup("0");
-
-	ret = msg_get_bool_value(msg_struct_handle, MSG_MESSAGE_PROTECTED_BOOL,
-							&protect_status);
-	if (ret == MSG_SUCCESS) {
-		if (protect_status)
-			msg_info.protect = TRUE;
-	}
-
-	ret = msg_get_bool_value(msg_struct_handle, MSG_MESSAGE_READ_BOOL,
-								&read_status);
-	if (ret == MSG_SUCCESS) {
-		if (read_status)
-			msg_info.read = TRUE;
-	}
-
-	ret = msg_get_int_value(msg_struct_handle, MSG_MESSAGE_PRIORITY_INT,
-								&priority);
-	if (ret == MSG_SUCCESS) {
-		if (priority == MSG_MESSAGE_PRIORITY_HIGH)
-			msg_info.priority = TRUE;
-	}
-
-	FN_END;
-	return msg_info;
-}
-
-static void __bluetooth_map_msg_incoming_status_cb(msg_handle_t handle,
-							msg_struct_t msg,
-							void *user_param)
-{
-	FN_START;
-	int msg_id = 0;
-	int msg_type = 0;
-	int ret;
-
-	guint64 uid;
-
-	if (!g_mns_proxy) {
-		INFO("MNS Client not connected");
-		return;
-	}
-
-	ret = msg_get_int_value(msg, MSG_MESSAGE_TYPE_INT, &msg_type);
-	if (ret != MSG_SUCCESS)
-		return;
-
-	if (msg_type != MSG_TYPE_SMS) {
-		INFO("Not a SMS");
-		return;
-	}
-
-	ret = msg_get_int_value(msg, MSG_MESSAGE_ID_INT, &msg_id);
-	if (ret != MSG_SUCCESS)
-		return;;
-
-	uid = __bt_add_id(msg_id);
-
-	__bt_mns_client_event_notify("NewMessage", uid,
-						"TELECOM/MSG/INBOX", "",
-						"SMS_GSM");
-
-	FN_END;
-	return;
-}
-
-static void __bluetooth_map_msg_sent_status_cb(msg_handle_t handle,
-							msg_struct_t msg,
-							void *user_param)
-{
-	FN_START;
-	int ret;
-	int status;
-
-	if (!g_mns_proxy) {
-		INFO("MNS Client not connected");
-		return;
-	}
-
-	ret = msg_get_int_value(msg, MSG_SENT_STATUS_NETWORK_STATUS_INT,
-								&status);
-	if (ret != MSG_SUCCESS)
-		return;
-
-	if (status == MSG_NETWORK_SEND_SUCCESS) {
-		INFO("MSG SENT SUCCESS !!! ");
-		__bt_mns_client_event_notify("MessageShift",
-					current_push_map_id,
-					"TELECOM/MSG/SENT",
-					"TELECOM/MSG/OUTBOX",
-					"SMS_GSM");
-
-		__bt_mns_client_event_notify("SendingSuccess",
-					current_push_map_id,
-					"TELECOM/MSG/SENT", "",
-					"SMS_GSM");
-	} else {
-		ERR("MSG SENT FAIL !!! [%d]", status);
-		__bt_mns_client_event_notify("SendingFailure",
-					current_push_map_id,
-					"TELECOM/MSG/OUTBOX", "",
-					"SMS_GSM");
-	}
-
-	FN_END;
-	return;
 }
 
 static gboolean __bluetooth_map_start_service()
 {
 	FN_START;
-	msg_error_t err;
+	gboolean sms;
+	gboolean email;
 
-	err = msg_open_msg_handle(&g_msg_handle);
-	if (err != MSG_SUCCESS) {
-		ERR("msg_open_msg_handle error = %d\n", err);
-		return FALSE;
-	}
-
-	if (-1 == __bt_get_folder_id(BT_MAP_DELETED_FOLDER_NAME))
-		__bt_add_deleted_folder();
-
-	err = msg_reg_sms_message_callback(g_msg_handle,
-					__bluetooth_map_msg_incoming_status_cb,
-					0, (void *)BT_MAP_MSG_CB);
-	if (err != MSG_SUCCESS) {
-		ERR("msg_reg_sms_message_callback error  = %d\n", err);
-		return FALSE;
-	}
-
-	err = msg_reg_sent_status_callback(g_msg_handle,
-					__bluetooth_map_msg_sent_status_cb,
-					NULL);
-	if (err != MSG_SUCCESS) {
-		ERR("msg_reg_sent_status_callback error  = %d\n", err);
-		return FALSE;
-	}
+	sms = _bt_map_start_sms_service();
+	email = _bt_map_start_email_service();
+	if (sms && email)
+		return TRUE;
 
 	FN_END;
-	return TRUE;
-}
-
-static void __bluetooth_map_stop_service()
-{
-	FN_START;
-	msg_error_t err =  MSG_SUCCESS;
-	int folder_id;
-
-	folder_id = __bt_get_folder_id(BT_MAP_DELETED_FOLDER_NAME);
-	if (-1 != folder_id) {
-		err = msg_delete_folder(g_msg_handle, folder_id);
-		if (err != MSG_SUCCESS)
-			ERR("Delete folder failed");
-	}
-
-	if (NULL != g_msg_handle)
-		msg_close_msg_handle(&g_msg_handle);
-
-	g_msg_handle = NULL;
-
-	FN_END;
-	return;
+	return FALSE;
 }
 
 static gboolean __bt_validate_utf8(char **text)
@@ -1274,7 +910,7 @@ static gboolean __bt_validate_utf8(char **text)
 	return FALSE;
 }
 
-static gboolean __bt_validate_msg_data(struct message_info *msg_info)
+gboolean _bt_validate_msg_data(message_info_t *msg_info)
 {
 	FN_START;
 	if (msg_info == NULL)
@@ -1302,186 +938,99 @@ static gboolean __bt_validate_msg_data(struct message_info *msg_info)
 	return TRUE;
 }
 
-msg_error_t __bt_send_sms(int msg_id, msg_struct_t p_msg, msg_struct_t p_send_opt)
-{
-	FN_START;
-	msg_error_t err;
-	msg_struct_t p_req;
-
-	p_req = msg_create_struct(MSG_STRUCT_REQUEST_INFO);
-
-	msg_set_int_value(p_msg, MSG_MESSAGE_ID_INT, msg_id);
-	msg_set_struct_handle(p_req, MSG_REQUEST_MESSAGE_HND, p_msg);
-	msg_set_struct_handle(p_req, MSG_REQUEST_SENDOPT_HND, p_send_opt);
-
-	err = msg_sms_send_message(g_msg_handle, p_req);
-	if (err != MSG_SUCCESS)
-		ERR("Failed msg_sms_send_message %d", err);
-
-	msg_release_struct(&p_req);
-	FN_END;
-	return err;
-}
-
-static int __bt_push_sms(gboolean send, int folder_id, char *body,
-							GSList *recepients)
-{
-	FN_START;
-	msg_struct_t msg_info = NULL;
-	msg_struct_t send_opt = NULL;
-	msg_error_t err;
-
-	int count = 0;
-	int i = 0;
-	int msg_id = -1;
-
-	msg_info = msg_create_struct(MSG_STRUCT_MESSAGE_INFO);
-	if (msg_info == NULL)
-		goto fail;
-
-	err = msg_set_int_value(msg_info, MSG_MESSAGE_TYPE_INT, MSG_TYPE_SMS);
-	if (err != MSG_SUCCESS)
-		goto fail;
-
-	if (body) {
-		err = msg_set_str_value(msg_info,
-					MSG_MESSAGE_SMS_DATA_STR,
-					body, strlen(body));
-		if (err != MSG_SUCCESS)
-			goto fail;
-	} else {
-		err = msg_set_str_value(msg_info, MSG_MESSAGE_SMS_DATA_STR,
-								NULL, 0);
-		if (err != MSG_SUCCESS)
-			goto fail;
-	}
-
-	DBG("folder_id  %d\n", folder_id);
-	err = msg_set_int_value(msg_info, MSG_MESSAGE_FOLDER_ID_INT,
-								folder_id);
-	if (err != MSG_SUCCESS)
-		goto fail;
-
-	if (recepients) {
-		count = g_slist_length(recepients);
-		DBG("Count = %d\n", count);
-
-		for (i = 0; i < count; i++) {
-			msg_struct_t tmp_addr;
-			char *address = (char *)g_slist_nth_data(recepients, i);
-			if (address == NULL) {
-				ERR("[ERROR] address is value NULL, skip");
-				continue;
-			}
-			msg_list_add_item(msg_info,
-				MSG_MESSAGE_ADDR_LIST_HND, &tmp_addr);
-
-			msg_set_int_value(tmp_addr,
-				MSG_ADDRESS_INFO_RECIPIENT_TYPE_INT,
-				MSG_RECIPIENTS_TYPE_TO);
-
-			msg_set_str_value(tmp_addr,
-				MSG_ADDRESS_INFO_ADDRESS_VALUE_STR,
-				address, strlen(address));
-		}
-	}
-
-	send_opt = msg_create_struct(MSG_STRUCT_SENDOPT);
-
-	err = msg_set_bool_value(send_opt, MSG_SEND_OPT_SETTING_BOOL, true);
-	if (err != MSG_SUCCESS)
-		goto fail;
-
-	/* Do not keep a copy */
-	err = msg_set_bool_value(send_opt, MSG_SEND_OPT_KEEPCOPY_BOOL,
-							opt.save_copy);
-	if (err != MSG_SUCCESS)
-		goto fail;
-
-	msg_id = msg_add_message(g_msg_handle, msg_info, send_opt);
-	DBG("msg_id = %d\n", msg_id);
-
-	if (send == TRUE)
-		__bt_send_sms(msg_id, msg_info, send_opt);
-
-
-fail:
-	msg_release_struct(&msg_info);
-	msg_release_struct(&send_opt);
-	FN_END;
-	return msg_id;
-}
-
 static void __bt_mns_client_connect(char *address)
 {
 	FN_START;
-	GHashTable *hash;
-	GValue *tgt_value;
+	GDBusConnection *connection;
+	GVariantBuilder builder;
+	GVariant *args;
+	GVariant *param;
+	GVariant *value;
 	GError *error = NULL;
-	const char *session_path = NULL;
+	const char *session_path;
 
 	if (g_mns_proxy) {
 		DBG_SECURE("MNS Client already connected to %s", address);
 		return;
 	}
 
-	g_mns_proxy = dbus_g_proxy_new_for_name(g_connection,
-						OBEX_CLIENT_SERVICE,
-						OBEX_CLIENT_PATH,
-						OBEX_CLIENT_INTERFACE);
-	if (!g_mns_proxy) {
-		ERR("Failed to get a proxy for D-Bus\n");
+	connection = __bt_map_get_gdbus_connection();
+	if (connection == NULL) {
+		DBG("Could not get GDBus Connection");
 		return;
 	}
 
-	hash = g_hash_table_new_full(g_str_hash, g_str_equal,
-				     NULL, (GDestroyNotify)g_free);
+	g_mns_proxy = g_dbus_proxy_new_sync(connection,
+			G_DBUS_PROXY_FLAGS_NONE, NULL,
+			OBEX_CLIENT_SERVICE, OBEX_CLIENT_PATH,
+			OBEX_CLIENT_INTERFACE, NULL, &error);
 
-	tgt_value = g_new0(GValue, 1);
-	g_value_init(tgt_value, G_TYPE_STRING);
-	g_value_set_string(tgt_value, "MNS");
-	g_hash_table_insert(hash, "Target", tgt_value);
+	if (!g_mns_proxy) {
+		ERR("Failed to get a proxy for D-Bus");
+		return;
+	}
 
-	dbus_g_proxy_call(g_mns_proxy, "CreateSession", &error,
-		G_TYPE_STRING,address,
-		dbus_g_type_get_map("GHashTable", G_TYPE_STRING, G_TYPE_VALUE),
-		hash, G_TYPE_INVALID,
-		DBUS_TYPE_G_OBJECT_PATH, &session_path,
-		G_TYPE_INVALID);
-	if (error) {
-		ERR("Error [%s]", error->message);
-		g_error_free(error);
-		g_hash_table_destroy(hash);
+	/* Create Hash*/
+	g_variant_builder_init(&builder, G_VARIANT_TYPE_ARRAY);
+	g_variant_builder_add(&builder, "{sv}", "Target",
+					g_variant_new("s", "MNS"));
+	args = g_variant_builder_end(&builder);
+
+	param = g_variant_new("(s@a{sv})", address, args);
+
+	value = g_dbus_proxy_call_sync(g_mns_proxy,
+			"CreateSession", param, G_DBUS_CALL_FLAGS_NONE, -1,
+			NULL, &error);
+	if (value == NULL) {
+		/* dBUS-RPC is failed */
+		ERR("dBUS-RPC is failed");
+		if (error != NULL) {
+			/* dBUS gives error cause */
+			ERR("D-Bus API failure: errCode[%x], message[%s]",
+				error->code, error->message);
+
+			g_clear_error(&error);
+		}
 		g_object_unref(g_mns_proxy);
 		g_mns_proxy = NULL;
 		return;
 	}
 
+	g_variant_get(value, "(&o)", &session_path);
 	g_mns_path = g_strdup(session_path);
 	DBG("g_mns_path = %s\n", g_mns_path);
 
-	g_hash_table_destroy(hash);
-
+	g_variant_unref(value);
 	FN_END;
-	return;
 }
 
 static void __bt_mns_client_disconnect()
 {
 	FN_START;
 	GError *error = NULL;
+	GVariant *value;
 
 	if (!g_mns_proxy) {
 		ERR("No proxy to disconnect");
 		return;
 	}
 
-	dbus_g_proxy_call(g_mns_proxy, "RemoveSession", &error,
-		DBUS_TYPE_G_OBJECT_PATH, g_mns_path,
-		G_TYPE_INVALID, G_TYPE_INVALID);
-	if (error) {
-		ERR("Error [%s]", error->message);
-		g_error_free(error);
+	value = g_dbus_proxy_call_sync(g_mns_proxy,
+			"RemoveSession", g_variant_new("(o)", g_mns_path),
+			G_DBUS_CALL_FLAGS_NONE, -1,
+			NULL, &error);
+
+	if (value == NULL) {
+		/* dBUS-RPC is failed */
+		ERR("dBUS-RPC is failed: Could not remove MAP session");
+		if (error != NULL) {
+			/* dBUS gives error cause */
+			ERR("D-Bus API failure: errCode[%x], message[%s]",
+				error->code, error->message);
+
+			g_clear_error(&error);
+		}
+		return;
 	}
 
 	g_free(g_mns_path);
@@ -1490,379 +1039,301 @@ static void __bt_mns_client_disconnect()
 	g_object_unref(g_mns_proxy);
 	g_mns_proxy = NULL;
 
+	g_variant_unref(value);
 	FN_END;
-	return;
 }
 
-static void __bt_mns_client_event_notify(gchar *event, guint64 handle,
+void _bt_mns_client_event_notify(gchar *event, guint64 handle,
 					gchar *folder, gchar *old_folder,
 					gchar *msg_type)
 {
 	FN_START;
 	GError *error = NULL;
-	DBusGProxy *mns_proxy;
+	GDBusProxy *mns_proxy;
+	GDBusConnection *connection = NULL;
+	GVariant *value;
 
 	if (!g_mns_proxy) {
 		ERR("No client proxy");
 		return;
 	}
 
-	mns_proxy = dbus_g_proxy_new_for_name(g_connection,
-						OBEX_CLIENT_SERVICE,
-						g_mns_path,
-						MNS_CLIENT_INTERFACE);
+	connection = __bt_map_get_gdbus_connection();
+	if (connection == NULL) {
+		DBG("Could not get GDBus Connection");
+		return;
+	}
+
+	mns_proxy = g_dbus_proxy_new_sync(connection,
+			G_DBUS_PROXY_FLAGS_NONE, NULL,
+			OBEX_CLIENT_SERVICE, g_mns_path,
+			MNS_CLIENT_INTERFACE, NULL, &error);
 	if (mns_proxy == NULL) {
 		ERR("Failed to get a proxy for D-Bus\n");
 		return;
 	}
 
-	dbus_g_proxy_call(mns_proxy, "SendEvent", &error,
-		G_TYPE_STRING, event,
-		G_TYPE_UINT64, handle,
-		G_TYPE_STRING, folder,
-		G_TYPE_STRING, old_folder,
-		G_TYPE_STRING, msg_type,
-		G_TYPE_INVALID, G_TYPE_INVALID);
-	if (error) {
-		ERR("Error [%s]", error->message);
-		g_error_free(error);
+	value = g_dbus_proxy_call_sync(mns_proxy, "SendEvent",
+			g_variant_new("(stsss)", event, handle, folder, old_folder, msg_type),
+			G_DBUS_CALL_FLAGS_NONE, -1, NULL, &error);
+	if (value == NULL) {
+		/* dBUS-RPC is failed */
+		ERR("dBUS-RPC is failed: SendEvent failed");
+		if (error != NULL) {
+			/* dBUS gives error cause */
+			ERR("D-Bus API failure: errCode[%x], message[%s]",
+				error->code, error->message);
+
+			g_clear_error(&error);
+		}
+		g_object_unref(mns_proxy);
+		return;
 	}
 
+	g_variant_unref(value);
 	g_object_unref(mns_proxy);
 	FN_END;
 }
 
-static gboolean bluetooth_map_get_folder_tree(BluetoothMapAgent *agent,
-						DBusGMethodInvocation *context)
+static gchar *__bt_get_map_folder(int folder)
 {
-	FN_START;
-	GPtrArray *array = g_ptr_array_new();
-	GValue value;
-	GError *error = NULL;
-
-	char name[BT_MAP_MSG_INFO_MAX] = {0,};
-	char folder_name[BT_MAP_MSG_INFO_MAX] = {0,};
-	int i;
-	int ret;
-	gboolean msg_ret = TRUE;
-
-	msg_struct_list_s folder_list = {0,};
-	msg_struct_t p_folder;
-
-	if (g_msg_handle == NULL) {
-		msg_ret = FALSE;
-		goto done;
+	switch (folder) {
+	case BT_MSG_INBOX:
+		return g_strdup("INBOX");
+	case BT_MSG_SENT:
+		return g_strdup("SENT");
+	case BT_MSG_OUTBOX:
+		return g_strdup("OUTBOX");
+	case BT_MSG_DRAFT:
+		return g_strdup("DRAFT");
+	case BT_MSG_DELETED:
+		return g_strdup("DELETED");
 	}
-
-	if (msg_get_folder_list(g_msg_handle, &folder_list) != MSG_SUCCESS) {
-		msg_ret = FALSE;
-		goto done;
-	}
-
-	for (i = 0; i < folder_list.nCount; i++) {
-		p_folder = folder_list.msg_struct_info[i];
-		memset(folder_name, 0x00, BT_MAP_MSG_INFO_MAX);
-
-		ret = msg_get_str_value(p_folder, MSG_FOLDER_INFO_NAME_STR,
-					folder_name, BT_MAP_MSG_INFO_MAX);
-		if (ret != MSG_SUCCESS)
-			continue;
-
-		if (g_strstr_len(folder_name, -1, BT_MAP_MSG_TEMPLATE))
-			continue;
-
-		if (!g_ascii_strncasecmp(folder_name, BT_MAP_SENT_FOLDER_NAME,
-					strlen(BT_MAP_SENT_FOLDER_NAME))) {
-			memset(folder_name, 0, sizeof(folder_name));
-			g_strlcpy(folder_name, BT_MAP_SENT_FOLDER_NAME,
-							sizeof(folder_name));
-		}
-
-		g_strlcpy(name, folder_name, sizeof(name));
-		memset(&value, 0, sizeof(GValue));
-		g_value_init(&value, DBUS_STRUCT_STRING_STRING_UINT);
-		g_value_take_boxed(&value, dbus_g_type_specialized_construct(
-					DBUS_STRUCT_STRING_STRING_UINT));
-		dbus_g_type_struct_set(&value, 0, name, G_MAXUINT);
-		g_ptr_array_add(array, g_value_get_boxed(&value));
-	}
-
-done:
-
-	if (folder_list.msg_struct_info)
-		msg_release_list_struct(&folder_list);
-
-	if (msg_ret == FALSE) {
-		g_ptr_array_free(array, TRUE);
-
-		error = __bt_map_agent_error(BT_MAP_AGENT_ERROR_INTERNAL,
-						"InternalError");
-		dbus_g_method_return_error(context, error);
-		g_error_free(error);
-		return FALSE;
-	} else {
-		dbus_g_method_return(context, array);
-		g_ptr_array_free(array, TRUE);
-		FN_END;
-		return TRUE;
-	}
+	return NULL;
 }
 
-static gboolean bluetooth_map_get_message_list(BluetoothMapAgent *agent,
-						gchar *folder_name, guint16 max,
-						DBusGMethodInvocation *context)
+static GList *_bt_map_merge_sorted(GSList *sms_list, GSList *email_list)
+{
+	GList *list = NULL;
+	message_info_t *sms;
+	message_info_t *email;
+
+/* **********************Note from glib documentation**************************
+ * g_list_append() has to traverse the entire list to find the end, which
+ * is inefficient when adding multiple elements. A common idiom to avoid the
+ * inefficiency is to use g_list_prepend() and reverse the list with
+ * g_list_reverse() when all elements have been added.
+ * ***************************************************************************/
+
+	while (sms_list && email_list) {
+		sms = sms_list->data;
+		email = email_list->data;
+
+		if (sms->time > email->time) {
+			list = g_list_prepend(list, sms);
+			sms_list = g_slist_next(sms_list);
+		} else {
+			list = g_list_prepend(list, email);
+			email_list = g_slist_next(email_list);
+		}
+	}
+
+	while (sms_list) {
+		sms = sms_list->data;
+		list = g_list_prepend(list, sms);
+		sms_list = g_slist_next(sms_list);
+	}
+	while (email_list) {
+		email = email_list->data;
+		list = g_list_prepend(list, email);
+		email_list = g_slist_next(email_list);
+	}
+
+	list = g_list_reverse(list);
+	return list;
+}
+
+static GVariant *__bt_map_get_folder_tree(GError **err)
+{
+	GVariant *folder_list = NULL;
+	GVariantBuilder *builder = g_variant_builder_new(G_VARIANT_TYPE("a(s)"));
+	int i;
+	gboolean sms_ret = TRUE;
+	gboolean email_ret = TRUE;
+
+	sms_ret = _bt_map_sms_get_supported_folders(folders_supported);
+	email_ret = _bt_map_email_get_supported_folders(folders_supported);
+
+	if (sms_ret || email_ret) {
+		for (i = 0; i < 5; i++) {
+			if (folders_supported[i][BT_MSG_SOURCE_SMS] ||
+					folders_supported[i][BT_MSG_SOURCE_EMAIL]) {
+				g_variant_builder_add(builder, "(s)", __bt_get_map_folder(i));
+			}
+		}
+
+		folder_list = g_variant_new("(a(s))", builder);
+	} else {
+		*err = __bt_map_error(BT_MAP_AGENT_ERROR_INTERNAL,
+						"InternalError");
+	}
+
+	g_variant_builder_unref(builder);
+	return folder_list;
+}
+
+static GVariant *__bt_map_get_message_list(char *folder_name, guint16 max,
+				guint16 offset, guint8 subject_len,
+				map_msg_filter_t *filter, GError **err)
 {
 	FN_START;
-	GPtrArray *array = g_ptr_array_new();
-	GValue value;
-	GError *error = NULL;
-
-	char *folder = NULL;
-	int i = 0;
-	int ret = 0;
-	int folder_id = -1;
-	int folder_len;
-	bool read;
+	GVariant *message_list = NULL;
+	GVariantBuilder *builder = g_variant_builder_new(G_VARIANT_TYPE("a(ssssssssssbsbbbbs)"));
+	GSList *sms_list = NULL;
+	GSList *email_list = NULL;
+	gboolean sms_ret = TRUE;
+	gboolean email_ret = TRUE;
 	guint64 count = 0;
+	guint64 count_sms = 0;
+	guint64 count_email = 0;
 	gboolean newmsg = FALSE;
+	char *folder = NULL;
 
-	msg_struct_list_s folder_list = {0,};
-	msg_struct_list_s msg_list = {0,};
-	msg_struct_t list_cond;
-
-	if (g_msg_handle == NULL)
-		goto fail;
-
+	DBG("Folder:%s Max:%d", folder_name, max);
 	if (!folder_name)
 		goto fail;
 
-	folder_len = strlen(folder_name);
 	/* In case of parent folders send empty message listing */
-	if (!g_ascii_strncasecmp(folder_name, "/", folder_len) ||
-		!g_ascii_strncasecmp(folder_name, "/telecom", folder_len) ||
-		!g_ascii_strncasecmp(folder_name, "/telecom/msg", folder_len))
-		goto done;
+	/*
+	if (g_ascii_strncasecmp(folder_name, "/telecom/msg/", strlen("/telecom/msg/")))
+		goto fail;
+	 */
 
 	folder = strrchr(folder_name, '/');
 	if (NULL == folder)
 		folder = folder_name;
 	else
 		folder++;
-
-	ret = msg_get_folder_list(g_msg_handle, &folder_list);
-	if (ret != MSG_SUCCESS)
-		goto fail;
-
-	for (i = 0; i < folder_list.nCount; i++) {
-		char f_name[BT_MAP_MSG_INFO_MAX] = {0, };
-		msg_struct_t p_folder = folder_list.msg_struct_info[i];
-
-		ret = msg_get_str_value(p_folder, MSG_FOLDER_INFO_NAME_STR,
-					f_name, BT_MAP_MSG_INFO_MAX);
-		if (ret  != MSG_SUCCESS)
-			continue;
-
-		if (!g_ascii_strncasecmp(f_name, folder, strlen(folder))) {
-			ret = msg_get_int_value(p_folder, MSG_FOLDER_INFO_ID_INT,
-								&folder_id);
-			if (ret != MSG_SUCCESS)
-				goto fail;
-
-			DBG("folder_id %d \n", folder_id);
-
-			break;
+	DBG("Filter Type: %d", filter->type);
+	if ((filter->type & FILTER_TYPE_SMS_GSM) == 0) { /* Check if SMS is requested */
+		if (!g_ascii_strncasecmp(folder, "SENT", strlen("SENT"))) {
+			/* Failed Sent SMS are stored in OUTBOX.
+			 * Hence, Fetch both SENT and OUTBOX */
+			gboolean sent_ret = _bt_map_get_sms_message_list("SENT",
+						max + offset, subject_len, filter,
+						&sms_list, &count_sms, &newmsg);
+			gboolean outbox_ret = _bt_map_get_sms_message_list("OUTBOX",
+						max + offset, subject_len, filter,
+						&sms_list, &count_sms, &newmsg);
+			sms_ret = (sent_ret || outbox_ret);
+		} else {
+			sms_ret = _bt_map_get_sms_message_list(folder,
+					max + offset, subject_len, filter,
+					&sms_list, &count_sms, &newmsg);
 		}
 	}
 
-	if (folder_id == -1)
-		goto fail;
-
-	list_cond = msg_create_struct(MSG_STRUCT_MSG_LIST_CONDITION);
-	ret = msg_set_int_value(list_cond,
-				MSG_LIST_CONDITION_FOLDER_ID_INT,
-				folder_id);
-	if (ret != MSG_SUCCESS)
-		goto fail;
-
-	ret = msg_set_int_value(list_cond,
-				MSG_LIST_CONDITION_MSGTYPE_INT, MSG_TYPE_SMS);
-	if (ret != MSG_SUCCESS)
-		goto fail;
-
-	ret = msg_get_message_list2(g_msg_handle, list_cond, &msg_list);
-
-	msg_release_struct(&list_cond);
-
-	if (ret != MSG_SUCCESS)
-		goto fail;
-
-	count = (guint64)msg_list.nCount;
-
-	for (i = 0; i < count; i++) {
-		msg_get_bool_value(msg_list.msg_struct_info[i],
-					MSG_MESSAGE_READ_BOOL, &read);
-		if (read == false) {
-			newmsg = TRUE;
-			break;
-		}
+	if ((filter->type & FILTER_TYPE_EMAIL) == 0) { /* Check if EMAIL is requested */
+		email_ret = _bt_map_get_email_list(folder,
+				max + offset, subject_len, filter,
+				&email_list, &count_email, &newmsg);
 	}
 
-	DBG("count = %llx, newmsg = %d, max = %d", count, newmsg, max);
+	if (sms_ret || email_ret) {
+		GList *list = _bt_map_merge_sorted(sms_list, email_list);
+		GList *pos = NULL;
+		int i;
+		message_info_t *msg_info = NULL;
 
-	if (max == 0)
-		goto done;
+		g_slist_free(sms_list);
+		g_slist_free(email_list);
 
-	for (i = 0; i < msg_list.nCount; i++) {
+		count = count_sms + count_email;
 
-		struct message_info msg_info;
+		pos = g_list_nth(list, offset);
+		for (i = offset; pos && i < max + offset; i++) {
+			msg_info = pos->data;
+			g_variant_builder_add(builder, "(ssssssssssbsbbbbs)",
+						msg_info->handle,
+						msg_info->subject,
+						msg_info->datetime,
+						msg_info->sender_name,
+						msg_info->sender_addressing,
+						msg_info->recipient_name,
+						msg_info->recipient_addressing,
+						msg_info->type,
+						msg_info->size,
+						msg_info->reception_status,
+						msg_info->text,
+						msg_info->attachment_size,
+						msg_info->priority,
+						msg_info->read,
+						msg_info->sent,
+						msg_info->protect,
+						msg_info->replyto_addressing);
 
-		memset(&value, 0, sizeof(GValue));
-		g_value_init(&value, DBUS_STRUCT_MESSAGE_LIST);
-		g_value_take_boxed(&value, dbus_g_type_specialized_construct(
-						DBUS_STRUCT_MESSAGE_LIST));
-
-		msg_info = __bt_message_info_get(msg_list.msg_struct_info[i]);
-
-		if (!__bt_validate_msg_data(&msg_info)) {
-			__bt_message_info_free(msg_info);
-			count--;
-			continue;
+			pos = g_list_next(pos);
 		}
 
-		dbus_g_type_struct_set(&value, 0, msg_info.handle,
-					1, msg_info.subject,
-					2, msg_info.datetime,
-					3, msg_info.sender_name,
-					4, msg_info.sender_addressing,
-					5, msg_info.recipient_name,
-					6, msg_info.recipient_addressing,
-					7, msg_info.type,
-					8, msg_info.size,
-					9, msg_info.reception_status,
-					10, msg_info.text,
-					11, msg_info.attachment_size,
-					12, msg_info.priority,
-					13, msg_info.read,
-					14, msg_info.sent,
-					15, msg_info.protect,
-					16, msg_info.replyto_addressing,
-					G_MAXUINT);
-		g_ptr_array_add(array, g_value_get_boxed(&value));
+		message_list = g_variant_new("(bta(ssssssssssbsbbbbs))",
+				newmsg, count, builder);
+		g_variant_builder_unref(builder);
+		g_list_free_full(list, _bt_message_info_free);
 
-		__bt_message_info_free(msg_info);
+		return message_list;
 	}
-
-done:
-	if (folder_list.msg_struct_info)
-		ret = msg_release_list_struct(&folder_list);
-
-	if (msg_list.msg_struct_info)
-		ret = msg_release_list_struct(&msg_list);
-
-	dbus_g_method_return(context, newmsg, count, array);
-	g_ptr_array_free(array, TRUE);
-	FN_END;
-	return TRUE;
 
 fail:
-	if (folder_list.msg_struct_info)
-		ret = msg_release_list_struct(&folder_list);
-
-	if (msg_list.msg_struct_info)
-		ret = msg_release_list_struct(&msg_list);
-
-	g_ptr_array_free(array, TRUE);
-	error = __bt_map_agent_error(BT_MAP_AGENT_ERROR_INTERNAL,
-							  "InternalError");
-	dbus_g_method_return_error(context, error);
-	g_error_free(error);
+	*err = __bt_map_error(BT_MAP_AGENT_ERROR_INTERNAL,
+					"InternalError");
+	g_variant_builder_unref(builder);
 	ERR("fail -");
-	return FALSE;
+	return NULL;
 }
 
-static gboolean bluetooth_map_get_message(BluetoothMapAgent *agent,
-						gchar *message_name,
-						gboolean attach,
-						gboolean transcode,
-						gboolean first_request,
-						DBusGMethodInvocation *context)
+static GVariant *__bt_map_get_message(char *message_name, gboolean attach,
+		gboolean transcode, gboolean first_request, GError **err)
 {
 	FN_START;
-	char *buf = NULL;
+	GVariant *message = NULL;
 	int message_id = 0;
+	gboolean val_ret;
+	gchar *bmseg = NULL;
 
-	GError *error = NULL;
+	struct id_info *handle_info = __bt_get_uid(message_name);
+	if (handle_info == NULL)
+		return FALSE;
 
-	msg_error_t msg_err;
-	msg_struct_t msg = NULL;
-	msg_struct_t send_opt = NULL;
+	message_id = handle_info->uid;
+	if (handle_info->msg_type == BT_MAP_ID_SMS)
+		val_ret = _bt_map_get_sms_message(message_id, attach, transcode, first_request, &bmseg);
+	else
+		val_ret = _bt_map_get_email_message(message_id, attach, transcode, first_request, &bmseg);
 
-	message_id = __bt_get_uid(message_name);
-	if (message_id == -1)
-		goto fail;
+	if (val_ret) {
+		message = g_variant_new("(bs)", FALSE, bmseg);
+		g_free(bmseg);
+		FN_END;
+		return message;
+	}
 
-	DBG("message_id %d \n", message_id);
-	DBG("attach %d \n", attach);
-	DBG("transcode %d \n", transcode);
-	DBG("first_request %d \n", first_request);
-
-	if (g_msg_handle == NULL)
-		goto fail;
-
-	msg = msg_create_struct(MSG_STRUCT_MESSAGE_INFO);
-	if (!msg)
-		goto fail;
-
-	send_opt = msg_create_struct(MSG_STRUCT_SENDOPT);
-	if (!send_opt)
-		goto fail;
-
-	msg_err = msg_get_message(g_msg_handle,
-					(msg_message_id_t)message_id,
-					msg, send_opt);
-	if (msg_err != MSG_SUCCESS)
-		goto fail;
-
-	buf = __bt_prepare_msg_bmseg(msg, attach, transcode);
-
-	dbus_g_method_return(context, FALSE, buf);
-	msg_release_struct(&msg);
-	msg_release_struct(&send_opt);
-	g_free(buf);
-
-	FN_END;
-	return TRUE;
-
-fail:
-
-	if (msg)
-		msg_release_struct(&msg);
-
-	if (send_opt)
-		msg_release_struct(&send_opt);
-
-	error = __bt_map_agent_error(BT_MAP_AGENT_ERROR_INTERNAL,
+	*err = __bt_map_error(BT_MAP_AGENT_ERROR_INTERNAL,
 							"InternalError");
-	dbus_g_method_return_error(context, error);
-	g_error_free(error);
 	ERR("fail - \n");
-	return FALSE;
+	return NULL;
 }
 
-static gboolean bluetooth_map_push_message(BluetoothMapAgent *agent,
-					gboolean save_copy,
-					gboolean retry_send,
-					gboolean native,
-					gchar *folder_name,
-					DBusGMethodInvocation *context)
+static GVariant *__bt_map_push_message(gboolean save_copy, gboolean retry_send,
+		gboolean native, char *folder_name, GError **err)
 {
 	FN_START;
 	guint64 handle = 0;
 
 	DBG_SECURE("folder_name = %s\n", folder_name);
 
-	handle = __bt_add_id(-1);
+	handle = _bt_add_id(-1, BT_MAP_ID_SMS);
 	current_push_map_id = handle;
+	push_folder = g_strdup(folder_name);
 
 	/* FALSE : Keep messages in Sent folder */
 	/* TRUE : don't keep messages in sent folder */
@@ -1879,222 +1350,106 @@ static gboolean bluetooth_map_push_message(BluetoothMapAgent *agent,
 	opt.native = native;
 	DBG("opt.native = %d\n", opt.native);
 
-	dbus_g_method_return(context, handle);
+	return g_variant_new("(t)", handle);
 	FN_END;
-	return TRUE;
 }
 
-static gboolean bluetooth_map_push_message_data(BluetoothMapAgent *agent,
-					gchar *bmsg,
-					DBusGMethodInvocation *context)
+static GVariant *__bt_map_push_message_data(char *bmseg, GError **err)
 {
 	FN_START;
-	int id = -1;
-	int folder_id;
-	char *body = NULL;
-	GSList *recepients = NULL;
-	gboolean send = FALSE;
+	gboolean ret = FALSE;
 
-	GError *error = NULL;
-
-	INFO("BMSG is \n %s", bmsg);
+	DBG_SECURE("BMSG: %s", bmseg);
 
 	struct bmsg_data *bmsg_info = NULL;
 
-	bmsg_info = bmsg_parse(bmsg);
-	if (!bmsg_info)
-		goto done;
+	bmsg_info = bmsg_parse(bmseg);
+	if (bmsg_info) {
+		if (!g_ascii_strcasecmp(bmsg_info->type, "SMS_GSM"))
+			ret = _bt_map_push_sms_data(bmsg_info, &opt, push_folder);
+		else if (!g_ascii_strcasecmp(bmsg_info->type, "EMAIL"))
+			ret = _bt_map_push_email_data(bmsg_info, &opt, push_folder);
 
-	folder_id = __bt_get_folder_id(bmsg_info->folder);
-	if (folder_id == -1)
-		goto done;
-
-	if (MSG_OUTBOX_ID == folder_id)
-		send = TRUE;
-
-	body = bmsg_get_msg_body(bmsg_info, opt.native);
-	if (body == NULL)
-		goto done;
-
-	recepients = bmsg_get_msg_recepients(bmsg_info);
-
-	id = __bt_push_sms(send, folder_id, body, recepients);
-	if (id == -1)
-		goto done;
-
-	__bt_update_id(current_push_map_id, id);
-
-done:
-	g_free(body);
-	g_slist_free(recepients);
-	bmsg_free_bmsg(bmsg_info);
-
-	if (id == -1) {
-		error = __bt_map_agent_error(BT_MAP_AGENT_ERROR_INTERNAL,
-							"InternalError");
-		dbus_g_method_return_error(context, error);
-		g_error_free(error);
-		FN_END;
-		return FALSE;
+		bmsg_free_bmsg(bmsg_info);
 	}
 
-	dbus_g_method_return(context);
-	FN_END;
-	return TRUE;
+	g_free(push_folder);
+	push_folder = NULL;
+	if (ret) {
+		INFO("Message Successfully Sent or Saved");
+		return NULL;
+	}
+
+	*err = __bt_map_error(BT_MAP_AGENT_ERROR_INTERNAL,
+						"InternalError");
+	ERR("Error in sending or saving Message");
+	return NULL;
 }
 
-static gboolean bluetooth_map_update_message(BluetoothMapAgent *agent,
-						DBusGMethodInvocation *context)
+/* Dummy Implementation */
+static GVariant *__bt_map_update_message(GError **err)
 {
-	int err = TRUE;
-
-	dbus_g_method_return(context, err);
-	return TRUE;
+	return g_variant_new("(b)", TRUE);
 }
 
-static gboolean bluetooth_map_set_read_status(BluetoothMapAgent *agent,
-						gchar *handle,
-						gboolean read_status,
-						DBusGMethodInvocation *context)
+static GVariant *__bt_map_set_read_status(char *handle, gboolean read_status, GError **err)
 {
 	FN_START;
 	int msg_id;
-	GError *error = NULL;
-	msg_error_t msg_err;
+	gboolean val_ret;
 
-	msg_id = __bt_get_uid(handle);
-	if (msg_id == -1)
+	struct id_info *handle_info = __bt_get_uid(handle);
+	if (handle_info == NULL)
 		goto fail;
 
+	msg_id = handle_info->uid;
 	DBG("msg_id = %d,  read_status = %d\n", msg_id, read_status);
+	if (handle_info->msg_type == BT_MAP_ID_SMS)
+		val_ret = _bt_map_sms_set_read_status(msg_id, read_status);
+	else
+		val_ret = _bt_map_set_email_read_status(msg_id, read_status);
 
-	msg_err = msg_update_read_status(g_msg_handle, msg_id,
-							read_status);
-	if (msg_err != MSG_SUCCESS)
-		goto fail;
-
-	dbus_g_method_return(context);
-	FN_END;
-	return TRUE;
+	if (val_ret) {
+		FN_END;
+		return NULL;
+	}
 
 fail:
-	error = __bt_map_agent_error(BT_MAP_AGENT_ERROR_INTERNAL,
+	*err = __bt_map_error(BT_MAP_AGENT_ERROR_INTERNAL,
 							"InternalError");
-	dbus_g_method_return_error(context, error);
-	g_error_free(error);
-
 	ERR("fail -\n");
-	return FALSE;
+	return NULL;
 }
 
-static gboolean bluetooth_map_set_delete_status(BluetoothMapAgent *agent,
-						gchar *handle,
-						gboolean delete_status,
-						DBusGMethodInvocation *context)
+static GVariant *__bt_map_set_delete_status(char *handle, gboolean delete_status, GError **err)
 {
 	FN_START;
 	int msg_id = 0;
-	int folder_id;
-	int del_folder_id;
-	gchar *folder_name = NULL;
-	guint64 map_id;
-	GError *error = NULL;
-	msg_error_t err;
-	msg_struct_t msg = NULL;
-	msg_struct_t send_opt = NULL;
+	gboolean val_ret;
 
-	msg_id = __bt_get_uid(handle);
-	if (msg_id == -1)
+	struct id_info *handle_info = __bt_get_uid(handle);
+	if (handle_info == NULL)
 		goto fail;
 
-	if (g_msg_handle == NULL)
-		goto fail;
+	msg_id = handle_info->uid;
+	if (handle_info->msg_type == BT_MAP_ID_SMS)
+		val_ret = _bt_map_set_sms_delete_status(msg_id, delete_status);
+	else
+		val_ret = _bt_map_set_email_delete_status(msg_id, delete_status);
 
-	msg = msg_create_struct(MSG_STRUCT_MESSAGE_INFO);
-	if (msg == NULL)
-		goto fail;
-
-	send_opt = msg_create_struct(MSG_STRUCT_SENDOPT);
-	if (send_opt == NULL)
-		goto fail;
-
-	err = msg_get_message(g_msg_handle,
-					(msg_message_id_t)msg_id,
-					msg, send_opt);
-	if (err != MSG_SUCCESS)
-		goto fail;
-
-	err = msg_get_int_value(msg, MSG_MESSAGE_FOLDER_ID_INT,
-							&folder_id);
-	if (err != MSG_SUCCESS)
-		goto fail;
-
-	folder_name = __bt_get_folder_name(folder_id);
-	del_folder_id = __bt_get_folder_id(BT_MAP_DELETED_FOLDER_NAME);
-	map_id = __bt_validate_uid(msg_id);
-
-	DBG("msg_id = %d, delete_status = %d\n", msg_id, delete_status);
-
-	if (-1 == del_folder_id) {
-		ERR("Delete folder not present");
-		if (delete_status == TRUE) {
-			err = msg_delete_message(g_msg_handle, msg_id);
-			if (err != MSG_SUCCESS)
-				goto fail;
-		}
-
-	} else {
-		if (delete_status == TRUE) {
-			err = msg_move_msg_to_folder(g_msg_handle, msg_id, del_folder_id);
-			if (err == MSG_SUCCESS) {
-				__bt_mns_client_event_notify("MessageShift",
-						map_id,
-						"TELECOM/MSG/DELETED",
-						folder_name,
-						"SMS_GSM");
-			}
-		} else {
-			if (folder_id != del_folder_id) {
-				DBG("Message not in delete folder");
-				goto fail;
-			}
-
-			err = msg_move_msg_to_folder(g_msg_handle, msg_id, MSG_INBOX_ID);
-			if (err == MSG_SUCCESS) {
-				__bt_mns_client_event_notify("MessageShift",
-						map_id,
-						"TELECOM/MSG/INBOX",
-						"TELECOM/MSG/DELETED",
-						"SMS_GSM");
-			}
-		}
+	if (val_ret) {
+		FN_END;
+		return NULL;
 	}
 
-	g_free(folder_name);
-	msg_release_struct(&msg);
-	msg_release_struct(&send_opt);
-	dbus_g_method_return(context);
-	FN_END;
-	return TRUE;
-
 fail:
-	g_free(folder_name);
-
-	msg_release_struct(&msg);
-	msg_release_struct(&send_opt);
-
-	error = __bt_map_agent_error(BT_MAP_AGENT_ERROR_INTERNAL,
+	*err = __bt_map_error(BT_MAP_AGENT_ERROR_INTERNAL,
 							"InternalError");
-	dbus_g_method_return_error(context, error);
-	g_error_free(error);
 	ERR("fail -\n");
-	return FALSE;
+	return NULL;
 }
 
-static gboolean bluetooth_map_noti_registration(BluetoothMapAgent *agent,
-						gchar *remote_addr,
-						gboolean status,
-						DBusGMethodInvocation *context)
+static void __bt_map_noti_registration(char *remote_addr, gboolean status)
 {
 	FN_START;
 	DBG_SECURE("remote_addr = %s \n", remote_addr);
@@ -2103,27 +1458,79 @@ static gboolean bluetooth_map_noti_registration(BluetoothMapAgent *agent,
 		__bt_mns_client_connect(remote_addr);
 	else
 		__bt_mns_client_disconnect();
-
-	return TRUE;
 }
 
-static gboolean bluetooth_map_destroy_agent(BluetoothMapAgent *agent,
-					DBusGMethodInvocation *context)
+static void __bt_map_destroy_agent(void)
 {
-	FN_START;
 	g_main_loop_quit(g_mainloop);
+}
+
+static GDBusNodeInfo *__bt_map_create_method_node_info
+					(const gchar *introspection_data)
+{
+	GError *err = NULL;
+	GDBusNodeInfo *node_info = NULL;
+
+	if (introspection_data == NULL)
+		return NULL;
+
+	node_info = g_dbus_node_info_new_for_xml(introspection_data, &err);
+
+	if (err) {
+		ERR("Unable to create node: %s", err->message);
+		g_clear_error(&err);
+	}
+	return node_info;
+}
+
+static gboolean __bt_map_dbus_init(void)
+{
+	guint owner_id;
+	guint map_id;
+	GDBusNodeInfo *node_info;
+	GError *error = NULL;
+	GDBusConnection *gdbus_conn = __bt_map_get_gdbus_connection();
+
+	if (gdbus_conn == NULL) {
+		ERR("Error in creating the gdbus connection");
+		return FALSE;
+	}
+
+	owner_id = g_bus_own_name(G_BUS_TYPE_SESSION,
+			BT_MAP_SERVICE_NAME,
+			G_BUS_NAME_OWNER_FLAGS_NONE,
+			NULL, NULL, NULL,
+			NULL, NULL);
+	DBG("owner_id is [%d]", owner_id);
+
+	node_info = __bt_map_create_method_node_info(
+			map_agent_introspection_xml);
+	if (node_info == NULL)
+		return FALSE;
+
+	map_id = g_dbus_connection_register_object(gdbus_conn, BT_MAP_SERVICE_OBJECT_PATH,
+					node_info->interfaces[0],
+					&method_table,
+					NULL, NULL, &error);
+
+	g_dbus_node_info_unref(node_info);
+
+	if (map_id == 0) {
+		ERR("Failed to register: %s", error->message);
+		g_error_free(error);
+		return FALSE;
+	}
+
 	return TRUE;
 }
 
 int main(void)
 {
 	FN_START;
-	BluetoothMapAgent *bluetooth_map_obj = NULL;
-	DBusGProxy *bus_proxy = NULL;
-	guint result = 0;
 	int ret;
-	GError *error = NULL;
 	DBG("Starting Bluetooth MAP agent");
+
+	//g_type_init();
 
 	g_mainloop = g_main_loop_new(NULL, FALSE);
 
@@ -2132,47 +1539,8 @@ int main(void)
 		return EXIT_FAILURE;
 	}
 
-	g_connection = dbus_g_bus_get(DBUS_BUS_SESSION, &error);
-
-	if (error != NULL) {
-		ERR("Couldn't connect to system bus[%s]\n", error->message);
-		g_error_free(error);
-		return EXIT_FAILURE;
-	}
-
-	bus_proxy = dbus_g_proxy_new_for_name(g_connection, DBUS_SERVICE_DBUS,
-						DBUS_PATH_DBUS,
-						DBUS_INTERFACE_DBUS);
-	if (bus_proxy == NULL) {
-		ERR("Failed to get a proxy for D-Bus\n");
+	if (__bt_map_dbus_init() == FALSE)
 		goto failure;
-	}
-
-	if (!dbus_g_proxy_call(bus_proxy, "RequestName", &error, G_TYPE_STRING,
-					BT_MAP_SERVICE_NAME, G_TYPE_UINT, 0,
-					G_TYPE_INVALID, G_TYPE_UINT, &result,
-					G_TYPE_INVALID)) {
-		if (error != NULL) {
-			ERR("RequestName RPC failed[%s]\n", error->message);
-			g_error_free(error);
-		}
-		goto failure;
-	}
-
-	if (result != DBUS_REQUEST_NAME_REPLY_PRIMARY_OWNER) {
-		ERR("Failed to get the primary well-known name.\n");
-		goto failure;
-	}
-
-	g_object_unref(bus_proxy);
-	bus_proxy = NULL;
-
-	bluetooth_map_obj = g_object_new(BLUETOOTH_MAP_TYPE_AGENT, NULL);
-
-	/* Registering it on the D-Bus */
-	dbus_g_connection_register_g_object(g_connection,
-						BT_MAP_SERVICE_OBJECT_PATH,
-						G_OBJECT(bluetooth_map_obj));
 
 	if (__bluetooth_map_start_service() == FALSE)
 		goto failure;
@@ -2198,14 +1566,12 @@ int main(void)
 
 	__bt_mns_client_disconnect();
 
-	if (bus_proxy)
-		g_object_unref(bus_proxy);
-	if (bluetooth_map_obj)
-		g_object_unref(bluetooth_map_obj);
-	if (g_connection)
-		dbus_g_connection_unref(g_connection);
+	if (map_dbus_conn)
+		g_object_unref(map_dbus_conn);
 
-	__bluetooth_map_stop_service();
+	_bt_map_stop_sms_service();
+	_bt_map_stop_email_service();
+
 	DBG("Bluetooth MAP agent Terminated successfully\n");
 	FN_END;
 	return EXIT_FAILURE;

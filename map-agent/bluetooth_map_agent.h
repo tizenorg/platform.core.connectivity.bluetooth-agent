@@ -26,12 +26,9 @@
 
 #include <unistd.h>
 #include <dlog.h>
-
 #include <stdio.h>
-
-#include <dbus/dbus-glib.h>
-
-#define BT_MAP_AGENT_ERROR (__bt_map_agent_error_quark())
+#include <glib.h>
+#include "bluetooth_map_types.h"
 
 typedef enum {
 	BT_MAP_AGENT_ERROR_INTERNAL,
@@ -68,4 +65,21 @@ typedef enum {
 		} \
 	} while (0)
 
+void _bt_mns_client_event_notify(gchar *event, guint64 handle,
+					gchar *folder, gchar *old_folder,
+					gchar *msg_type);
+int _bt_update_id(guint64 map_id, int new_uid, int msg_type);
+gboolean _bt_validate_msg_data(message_info_t *msg_info);
+void _bt_message_info_free(gpointer data);
+void _get_msg_timestamp(time_t *ltime, char *timestamp);
+guint64 _bt_add_id(int uid, int msg_type);
+guint64 _bt_validate_uid(int uid, int msg_type);
+gboolean is_mns_connected(void);
+gchar *__bt_get_sms_pdu_from_msg_data(gchar *number, char *msg, time_t tm,
+		int *msg_pdu_len);
+gboolean _bt_verify_read_status(message_info_t *msg_info, guint8 read_status);
+gboolean _bt_verify_sender(message_info_t *msg_info, char *sender);
+gboolean _bt_verify_receiver(message_info_t *msg_info, char *receiver);
+gboolean _bt_verify_time(message_info_t *msg_info, map_msg_filter_t *filter);
+gboolean _bt_filter_priority(message_info_t *msg_info, guint8 priority);
 #endif /* __DEF_BT_AGENT_H_ */

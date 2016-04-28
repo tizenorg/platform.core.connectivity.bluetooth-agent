@@ -308,7 +308,59 @@ char *bmsg_get_msg_body(struct bmsg_data *bmsg, gboolean utf)
 	return NULL;
 }
 
-GSList *bmsg_get_msg_recepients(struct bmsg_data *bmsg)
+char *get_line(char *string, int *len)
+{
+	int i = 0;
+	while (string[i] != '\n' && string[i] != '\0')
+		i++;
+
+	*len = i;
+	return g_strndup(string, i - 1);
+}
+
+gboolean bmsg_parse_msg_body(const char *message,
+			char **body, char **subject)
+{
+	FN_START;
+	DBG("Message: %s", message);
+	char *temp = (char *)message;
+	char *line = NULL;
+	int len;
+
+	*subject = NULL;
+	*body = NULL;
+	while ((line = get_line(temp, &len)) != NULL) {
+		if (!g_ascii_strncasecmp(line, "Date:", strlen("Date:"))) {
+			//Currently nothing to be done
+		} else if (!g_ascii_strncasecmp(line, "Subject:", strlen("Subject:"))) {
+			char *sub = line + strlen("Subject:");
+			while (*sub == ' ')
+				sub++;
+			DBG("Subject: %s", sub);
+			*subject = g_strdup(sub);
+		} else if (!g_ascii_strncasecmp(line, "From:", strlen("From:"))) {
+			//Currently nothing to be done
+		} else if (!g_ascii_strncasecmp(line, "To:", strlen("To:"))) {
+			//Currently nothing to be done
+		} else {
+			DBG("BODY: %s", temp);
+			*body = g_strdup(temp);
+			g_free(line);
+			break;
+		}
+
+		while ((temp[len] == '\r' || temp[len] == '\n') && temp[len] != '\0')
+			len++;
+
+		temp = temp + len;
+
+		g_free(line);
+	}
+	return TRUE;
+	FN_END;
+}
+
+GSList *bmsg_get_msg_recepients(struct bmsg_data *bmsg, int msg_type)
 {
 	FN_START;
 	struct benv_data *env_data;
@@ -327,12 +379,19 @@ GSList *bmsg_get_msg_recepients(struct bmsg_data *bmsg)
 		while (rvcard != NULL) {
 			k++;
 
-			if (rvcard->tel != NULL) {
-				DBG_SECURE("vcard->tel = %s\n", rvcard->tel);
-				receiver = g_slist_append(receiver,
-								rvcard->tel);
+			if (msg_type == BT_MAP_ID_SMS) {
+				if (rvcard->tel != NULL) {
+					DBG_SECURE("vcard->tel = %s\n", rvcard->tel);
+					receiver = g_slist_append(receiver,
+									rvcard->tel);
+				}
+			} else {
+				if (rvcard->email != NULL) {
+					DBG_SECURE("vcard->email = %s\n", rvcard->email);
+					receiver = g_slist_append(receiver,
+									rvcard->email);
+				}
 			}
-
 			rvcard = g_slist_nth_data(env_data->recipient_vcard, k);
 		}
 
@@ -600,17 +659,16 @@ struct bmsg_envelope *bmsg_get_envelope_data(gchar **block_data)
 {
 	FN_START;
 	gchar *sub_block_data;
-	gchar *benv_block_data;
 	struct bmsg_envelope *envelope_data;
 	struct benv_data *rec_data;
 
 	envelope_data = g_new0(struct bmsg_envelope, 1);
 
-	benv_block_data = bmsg_get_parse_sub_block(block_data, "BENV");
-	sub_block_data = benv_block_data;
+	sub_block_data = bmsg_get_parse_sub_block(block_data, "BENV");
 
 	while (sub_block_data) {
-
+		char *next_sub_block_data;
+		char *save_sub_block_data = sub_block_data;
 		rec_data = bmsg_get_env_encapsulation_data(&sub_block_data);
 
 		while (rec_data) {
@@ -621,12 +679,12 @@ struct bmsg_envelope *bmsg_get_envelope_data(gchar **block_data)
 			rec_data = bmsg_get_env_encapsulation_data(
 							&sub_block_data);
 		}
-		g_free(benv_block_data);
-		benv_block_data = bmsg_get_parse_sub_block(&sub_block_data,
-									"BENV");
-		sub_block_data = benv_block_data;
+		next_sub_block_data = bmsg_get_parse_sub_block(&sub_block_data,
+								"BENV");
+		g_free(save_sub_block_data);
+		sub_block_data = next_sub_block_data;
 	}
-	g_free(benv_block_data);
+	g_free(sub_block_data);
 	FN_END;
 	return envelope_data;
 }
