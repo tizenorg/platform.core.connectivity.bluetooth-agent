@@ -25,6 +25,7 @@ BuildRequires:  pkgconfig(msg-service)
 %endif
 BuildRequires:  pkgconfig(capi-system-info)
 BuildRequires:  pkgconfig(dbus-glib-1)
+BuildRequires:  pkgconfig(email-service)
 BuildRequires:  pkgconfig(tapi)
 BuildRequires:  pkgconfig(dlog)
 BuildRequires:  pkgconfig(vconf)
@@ -32,6 +33,7 @@ BuildRequires:  pkgconfig(appsvc)
 BuildRequires:  pkgconfig(capi-appfw-application)
 BuildRequires:  pkgconfig(capi-media-image-util)
 BuildRequires:  pkgconfig(libexif)
+BuildRequires:  pkgconfig(gio-2.0)
 BuildRequires:  cmake
 Requires: security-config
 
@@ -81,6 +83,15 @@ mkdir -p %{buildroot}%{_unitdir}/multi-user.target.wants
 #install -m 0644 packaging/bluetooth-ag-agent.service %{buildroot}%{_unitdir}/
 #ln -s ../bluetooth-ag-agent.service %{buildroot}%{_unitdir}/multi-user.target.wants/bluetooth-ag-agent.service
 #%endif
+%if 0%{?sec_product_feature_bt_map_server_enable}
+install -D -m 0644 packaging/bluetooth-map-agent.service %{buildroot}%{_libdir}/systemd/user/bluetooth-map-agent.service
+%endif
+
+
+%post
+%if 0%{?sec_product_feature_bt_map_server_enable}
+ln -sf %{_libdir}/systemd/user/bluetooth-map-agent.service %{_sysconfdir}/systemd/default-extra-dependencies/ignore-units.d/
+%endif
 
 %files
 %manifest %{name}.manifest
