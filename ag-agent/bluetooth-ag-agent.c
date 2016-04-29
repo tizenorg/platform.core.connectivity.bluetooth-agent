@@ -3010,7 +3010,11 @@ static void __bt_ag_agent_method(GDBusConnection *connection,
 		if (ret)
 			goto fail;
 
-		DBG("Address = %s\n", address);
+		if (local_addr)
+			g_free(local_addr);
+
+		local_addr = g_strdup(address);
+		DBG("Address = %s\n", local_addr);
 		g_dbus_method_invocation_return_value(invocation, NULL);
 	} else if (g_strcmp0(method_name, "UnregisterApplication") == 0) {
 		gchar *path = NULL;
