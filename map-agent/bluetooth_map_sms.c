@@ -943,7 +943,7 @@ next:
 	msg_release_struct(&send_opt);
 
 	ret = msg_get_int_value(msg_struct_handle,
-				MSG_MESSAGE_DISPLAY_TIME_INT, &dptime);
+				MSG_MESSAGE_DISPLAY_TIME_INT, (int *)&dptime);
 	if (ret == MSG_SUCCESS) {
 		_get_msg_timestamp(&dptime, msg_datetime);
 	}
