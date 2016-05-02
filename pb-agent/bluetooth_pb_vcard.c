@@ -27,7 +27,6 @@
 #include <stdlib.h>
 #include <stdio.h>
 #include <glib.h>
-#include <dbus/dbus-glib.h>
 #include <vconf.h>
 #include <dlog.h>
 #include <fcntl.h>
@@ -899,9 +898,11 @@ static bool __bt_pbap_image_util_supported_jpeg_colorspace_cb(
 		int rotated_width, rotated_height;
 		unsigned char *img_rotate = 0;
 		img_rotate = g_malloc0(size_decode);
-		image_util_rotate(img_rotate, &rotated_width, &rotated_height,
+		ret = image_util_rotate(img_rotate, &rotated_width, &rotated_height,
 					rotation, img_target, resized_width,
 					resized_height, colorspace);
+		if (ret != 0)
+			ERR("image_util_rotate failed");
 		resized_width = rotated_width;
 		resized_height = rotated_height;
 		g_free(img_target);
@@ -1606,9 +1607,6 @@ static gchar *__bluetooth_pb_vcard_filter_v30(const gchar *vcard,
 
 	string = g_string_new(vcard);
 
-	if ((filter & VCARD_PHOTO) == 0)
-		__bluetooth_pb_vcard_remove_v30(string, "PHOTO");
-
 	if ((filter & VCARD_BDAY) == 0)
 		__bluetooth_pb_vcard_remove_v30(string, "BDAY");
 
@@ -1794,11 +1792,6 @@ static gchar *__bluetooth_pb_vcard_real_contact_valist_v30(gint person_id,
 	if (status != CONTACTS_ERROR_NONE)
 		return NULL;
 
-	status = contacts_record_destroy(person, TRUE);
-
-	if (status != CONTACTS_ERROR_NONE)
-		return NULL;
-
 	/* removing the END:VCARD\r\n" to append extra data */
 	str = g_string_new_len(vcard, (strlen(vcard)-11));
 	g_free(vcard);
@@ -1824,6 +1817,16 @@ static gchar *__bluetooth_pb_vcard_real_contact_valist_v30(gint person_id,
 		__bluetooth_pb_vcard_append_v30(str, "TEL", NULL, number);
 		g_free(number);
 	}
+
+	/* Remove Full contact image and add thumbnail image */
+	__bluetooth_pb_vcard_remove_v30(str, "PHOTO");
+	if (filter & VCARD_PHOTO)
+		__bluetooth_pb_vcard_append_photo_v21(str, person); /* Photo is same as vCard 2.1 */
+
+	/* Destroy contact record */
+	status = contacts_record_destroy(person, TRUE);
+	if (status != CONTACTS_ERROR_NONE)
+		ERR("Failed to destroy person");
 
 	g_string_append(str, "END:VCARD\r\n");
 
@@ -2043,21 +2046,18 @@ static gchar **__bluetooth_pb_contact_tel_param(contacts_record_h number)
 	if (status != CONTACTS_ERROR_NONE)
 		return NULL;
 
-	strv = g_new0(char *, TEL_PARAM_LEN + 1);/* tel param max size is 13 */
-
-	if (is_default) {
-		strv[i] = g_strdup("PREF");
-		i++;
-	}
-
 	status = contacts_record_get_int(number,
 			_contacts_number.type,
 			(gint *)&type);
 
 	if (status != CONTACTS_ERROR_NONE)
-	{
-		g_free(strv);
 		return NULL;
+
+	strv = g_new0(char *, TEL_PARAM_LEN + 1);/* tel param max size is 13 */
+
+	if (is_default) {
+		strv[i] = g_strdup("PREF");
+		i++;
 	}
 
 	if (type & CONTACTS_NUMBER_TYPE_HOME) {
@@ -2301,8 +2301,7 @@ static gchar *__bluetooth_pb_name_from_contact(contacts_record_h contact)
 	FN_START;
 	contacts_record_h name = NULL;
 
-	GString *str = g_string_new(NULL);
-
+	GString *str;
 	gint status;
 	gint i;
 
@@ -2319,6 +2318,8 @@ static gchar *__bluetooth_pb_name_from_contact(contacts_record_h contact)
 
 	if (status != CONTACTS_ERROR_NONE)
 		return NULL;
+
+	str = g_string_new(NULL);
 
 	for (i = 0; i < name_size; i++) {
 		gchar *tmp = NULL;
@@ -2347,7 +2348,7 @@ static gchar *__bluetooth_pb_phonetic_name_from_contact(contacts_record_h contac
 	FN_START;
 	contacts_record_h name = NULL;
 
-	GString *str = g_string_new(NULL);
+	GString *str;
 
 	gint status;
 
@@ -2368,6 +2369,8 @@ static gchar *__bluetooth_pb_phonetic_name_from_contact(contacts_record_h contac
 
 	if (phonetic_first == NULL)
 		return NULL;
+
+	str = g_string_new(NULL);
 
 	status = contacts_record_get_str_p(name, _contacts_name.phonetic_last, &phonetic_last);
 
