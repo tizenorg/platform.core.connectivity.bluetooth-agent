@@ -570,6 +570,7 @@ static gboolean __bt_hf_register_profile_methods(void)
 	conn = __bt_hf_get_gdbus_connection();
 	if (!conn) {
 		ERR("Unable to get connection");
+		g_free(path);
 		return FALSE;
 	}
 
@@ -599,8 +600,10 @@ static gboolean __bt_hf_register_profile_methods(void)
 						&method_table,
 						NULL, NULL, &error);
 	if (object_id == 0) {
-		ERR("Failed to register: %s", error->message);
-		g_error_free(error);
+		if (error != NULL) {
+			ERR("Failed to register: %s", error->message);
+			g_error_free(error);
+		}
 		g_dbus_node_info_unref(node_info);
 		g_free(path);
 		return FALSE;
