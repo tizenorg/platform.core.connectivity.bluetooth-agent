@@ -34,6 +34,8 @@ typedef enum {
 } bt_pbap_addressbook_e;
 
 /* vcard */
+int _bluetooth_get_contact_addressbook(gint person_id);
+
 gchar *_bluetooth_pb_vcard_contact(gint person_id,
 				guint64 filter,
 				guint8 format);
@@ -62,7 +64,5 @@ gchar *_bluetooth_pb_number_from_phonelog_id(gint phonelog_id);
 gchar *_bluetooth_pb_owner_name(void);
 
 bool _bt_is_sim_addressbook(const char *addressbook);
-
-int _bluetooth_get_contact_addressbook(gint person_id);
 
 #endif
