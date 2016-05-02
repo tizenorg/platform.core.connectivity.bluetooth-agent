@@ -27,7 +27,6 @@
 #include <stdlib.h>
 #include <stdio.h>
 #include <glib.h>
-#include <dbus/dbus-glib.h>
 #include <vconf.h>
 #include <dlog.h>
 #include <fcntl.h>
