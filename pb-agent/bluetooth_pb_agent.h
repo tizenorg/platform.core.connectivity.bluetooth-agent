@@ -29,8 +29,6 @@
 
 #include <stdio.h>
 
-#include <dbus/dbus-glib.h>
-
 #define BT_PB_SERVICE_OBJECT_PATH	"/org/bluez/pb_agent"
 #define BT_PB_SERVICE_NAME		"org.bluez.pb_agent"
 #define BT_PB_SERVICE_INTERFACE		"org.bluez.PbAgent"
