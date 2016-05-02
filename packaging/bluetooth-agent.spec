@@ -32,6 +32,7 @@ BuildRequires:  pkgconfig(vconf)
 BuildRequires:  pkgconfig(appsvc)
 BuildRequires:  pkgconfig(capi-appfw-application)
 BuildRequires:  pkgconfig(capi-media-image-util)
+BuildRequires:  pkgconfig(contacts-service2)
 BuildRequires:  pkgconfig(libexif)
 BuildRequires:  pkgconfig(gio-2.0)
 BuildRequires:  cmake
