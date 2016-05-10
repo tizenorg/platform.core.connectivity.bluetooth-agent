@@ -22,10 +22,10 @@ BuildRequires:  pkgconfig(capi-system-device)
 %else
 BuildRequires:  pkgconfig(contacts-service2)
 BuildRequires:  pkgconfig(msg-service)
+BuildRequires:  pkgconfig(email-service)
 %endif
 BuildRequires:  pkgconfig(capi-system-info)
 BuildRequires:  pkgconfig(dbus-glib-1)
-BuildRequires:  pkgconfig(email-service)
 BuildRequires:  pkgconfig(tapi)
 BuildRequires:  pkgconfig(dlog)
 BuildRequires:  pkgconfig(vconf)
