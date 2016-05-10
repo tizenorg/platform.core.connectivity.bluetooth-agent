@@ -112,7 +112,7 @@ ln -sf %{_libdir}/systemd/user/bluetooth-map-agent.service %{_sysconfdir}/system
 %{_bindir}/bluetooth-map-agent
 %{_bindir}/bluetooth-pb-agent
 %{_datadir}/dbus-1/system-services/org.bluez.pb_agent.service
-%{_datadir}/dbus-1/system-services/org.bluez.map_agent.service
+%{_datadir}/dbus-1/services/org.bluez.map_agent.service
 %{_datadir}/dbus-1/system-services/org.bluez.ag_agent.service
 #%{_usrlibdir}/systemd/system/bluetooth-ag-agent.service
 #%{_usrlibdir}/systemd/system/multi-user.target.wants/bluetooth-ag-agent.service
