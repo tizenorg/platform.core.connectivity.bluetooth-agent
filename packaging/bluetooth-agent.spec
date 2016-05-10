@@ -59,6 +59,13 @@ export CXXFLAGS+=" -DARCH64"
 export FFLAGS+=" -DARCH64"
 %endif
 
+%ifarch x86_64
+echo x86_64
+export CFLAGS+=" -DARCH64"
+export CXXFLAGS+=" -DARCH64"
+export FFLAGS+=" -DARCH64"
+%endif
+
 %if "%{?profile}" == "wearable"
 export CFLAGS="$CFLAGS -DTIZEN_WEARABLE"
 export CFLAGS="$CFLAGS -DTIZEN_SUPPORT_LUNAR_DEVICE"
