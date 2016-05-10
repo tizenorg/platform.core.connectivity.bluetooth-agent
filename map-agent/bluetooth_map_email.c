@@ -35,6 +35,9 @@
 #include <glib.h>
 #include <gio/gio.h>
 #include <stdlib.h>
+#ifdef ARCH64
+#include <stdint.h>
+#endif
 
 #define BT_MAIL_ID_MAX_LENGTH 50
 #define BT_MAP_TIMESTAMP_MAX_LEN 16
@@ -90,7 +93,11 @@ static void __bt_map_parse_moved_mails(char *inbuf, int *from_box_id,
 		inner_tok = g_strsplit_set(outer_tok[2], ",", -1);
 		if (g_strv_length(inner_tok) == 1) { // only one mail_id exists without ","
 			int mail_id = atoi(outer_tok[2]);
+#ifdef ARCH64
+			*mail_list = g_list_append(*mail_list, (void *)(uintptr_t) mail_id);
+#else
 			*mail_list = g_list_append(*mail_list, (void *) mail_id);
+#endif
 		} else {
 			int i;
 			for (i = 0; i < g_strv_length(inner_tok); ++i) {
@@ -98,7 +105,11 @@ static void __bt_map_parse_moved_mails(char *inbuf, int *from_box_id,
 					continue;
 				else {
 					int mail_id = atoi(inner_tok[i]);
+#ifdef ARCH64
+					*mail_list = g_list_prepend(*mail_list, (void *)(uintptr_t) mail_id);
+#else
 					*mail_list = g_list_prepend(*mail_list, (void *) mail_id);
+#endif
 				}
 			}
 		}
@@ -229,7 +240,11 @@ static void __bt_email_subscription_callback(GDBusConnection *connection,
 
 		if (mailbox_to->mailbox_type == EMAIL_MAILBOX_TYPE_TRASH) {
 			while (mail_ids) {
+#ifdef ARCH64
+				int mailid = (int)(uintptr_t)(void*) mail_ids->data;
+#else
 				int mailid = (int) mail_ids->data;
+#endif
 				char *old_folder;
 				DBG("Mail ID[%d]", mailid);
 				if (mailid == 0)
@@ -246,7 +261,11 @@ static void __bt_email_subscription_callback(GDBusConnection *connection,
 		} else if (mailbox_to->mailbox_type == EMAIL_MAILBOX_TYPE_SENTBOX
 				&& mailbox_from->mailbox_type == EMAIL_MAILBOX_TYPE_OUTBOX) {
 			while (mail_ids) {
+#ifdef ARCH64
+				int mailid = (int)(uintptr_t)(void*) mail_ids->data;
+#else
 				int mailid = (int) mail_ids->data;
+#endif
 				DBG("Mail ID[%d]", mailid);
 				if (mailid == 0)
 					break;
@@ -388,7 +407,11 @@ static message_info_t *__bt_email_info_get(email_mail_list_item_t *email_struct,
 	email_info = g_new0(message_info_t, 1);
 
 	uid = _bt_add_id(email_struct->mail_id, BT_MAP_ID_EMAIL);
+#ifdef ARCH64
+	snprintf(email_handle, sizeof(email_handle), "%lx", uid);
+#else
 	snprintf(email_handle, sizeof(email_handle), "%llx", uid);
+#endif
 	DBG("******* MAP ID:%d, MailID:%d **********", uid, email_struct->mail_id);
 	email_info->handle = g_strdup(email_handle);
 
@@ -736,9 +759,11 @@ static char *__bt_prepare_email_bmseg(email_mail_data_t *mail_data)
 		DBG("BODY of the MESSAGE NOT FOUND");
 		buf = (char *)g_strdup("");
 	}
-
+#ifdef ARCH64
+	g_string_append_printf(msg, LENGTH, (int)(unsigned int)strlen(buf));
+#else
 	g_string_append_printf(msg, LENGTH, strlen(buf));
-
+#endif
 	g_string_append_printf(msg, MSG_BODY, buf);
 
 

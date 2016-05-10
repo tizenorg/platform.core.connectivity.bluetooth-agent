@@ -52,6 +52,13 @@ export FFLAGS="$FFLAGS -DTIZEN_DEBUG_ENABLE"
 export CFLAGS="$CFLAGS -DTIZEN_MEDIA_ENHANCE"
 export CFLAGS="$CFLAGS -DTIZEN_BT_HFP_AG_ENABLE"
 
+%ifarch aarch64
+echo arch64
+export CFLAGS+=" -DARCH64"
+export CXXFLAGS+=" -DARCH64"
+export FFLAGS+=" -DARCH64"
+%endif
+
 %if "%{?profile}" == "wearable"
 export CFLAGS="$CFLAGS -DTIZEN_WEARABLE"
 export CFLAGS="$CFLAGS -DTIZEN_SUPPORT_LUNAR_DEVICE"

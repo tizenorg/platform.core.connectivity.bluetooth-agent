@@ -710,7 +710,11 @@ static char *__bt_prepare_msg_bmseg(msg_struct_t msg_info, gboolean attach,
 					MSG_MESSAGE_SMS_DATA_STR,
 					msg_body, BT_MAP_MSG_BODY_MAX);
 		if (ret == MSG_SUCCESS) {
+#ifdef ARCH64
+			g_string_append_printf(msg, LENGTH, (int)(unsigned int)strlen(msg_body));
+#else
 			g_string_append_printf(msg, LENGTH, strlen(msg_body));
+#endif
 			g_string_append_printf(msg, MSG_BODY, msg_body);
 		}
 	} else {
@@ -870,7 +874,11 @@ static message_info_t *__bt_message_info_get(msg_struct_t msg_struct_handle,
 	}
 
 	uid = _bt_add_id(msg_id, BT_MAP_ID_SMS);
+#ifdef ARCH64
+	snprintf(msg_handle, sizeof(msg_handle), "%lx", uid);
+#else
 	snprintf(msg_handle, sizeof(msg_handle), "%llx", uid);
+#endif
 	DBG("HANDLE: %s, MAP Id: %d, MSG ID:%d", msg_handle, uid, msg_id);
 	msg_info->handle = g_strdup(msg_handle);
 
