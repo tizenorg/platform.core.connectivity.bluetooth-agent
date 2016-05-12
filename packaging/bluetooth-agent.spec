@@ -93,14 +93,14 @@ rm -rf %{buildroot}
 %make_install
 
 install -D -m 0644 LICENSE %{buildroot}%{_datadir}/license/bluetooth-agent
-mkdir -p %{buildroot}%{_unitdir}/multi-user.target.wants
+#mkdir -p %{buildroot}%{_unitdir}/multi-user.target.wants
 #%if "%{?profile}" != "wearable"
 #install -m 0644 packaging/bluetooth-ag-agent.service %{buildroot}%{_unitdir}/
 #ln -s ../bluetooth-ag-agent.service %{buildroot}%{_unitdir}/multi-user.target.wants/bluetooth-ag-agent.service
 #%endif
-%if 0%{?sec_product_feature_bt_map_server_enable}
+#%if 0%{?sec_product_feature_bt_map_server_enable}
 install -D -m 0644 packaging/bluetooth-map-agent.service %{buildroot}%{_libdir}/systemd/user/bluetooth-map-agent.service
-%endif
+#%endif
 
 
 %post
@@ -125,5 +125,6 @@ ln -sf %{_libdir}/systemd/user/bluetooth-map-agent.service %{_sysconfdir}/system
 #%{_usrlibdir}/systemd/system/multi-user.target.wants/bluetooth-ag-agent.service
 %attr(0666,-,-) /var/lib/bluetooth/voice-recognition-blacklist
 %{_sysconfdir}/dbus-1/system.d/bluetooth-ag-agent.conf
+%{_libdir}/systemd/user/bluetooth-map-agent.service
 %endif
 %{_datadir}/license/bluetooth-agent

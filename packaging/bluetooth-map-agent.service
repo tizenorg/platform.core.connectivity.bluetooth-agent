@@ -1,0 +1,7 @@
+[Unit]
+Description=Bluetooth MAP Agent
+
+[Service]
+Type=dbus
+BusName=org.bluez.map_agent
+ExecStart=/usr/bin/bluetooth-map-agent
