@@ -114,6 +114,7 @@ ln -sf %{_libdir}/systemd/user/bluetooth-map-agent.service %{_sysconfdir}/system
 %if "%{?profile}" == "wearable"
 %{_bindir}/bluetooth-hf-agent
 %{_datadir}/dbus-1/system-services/org.bluez.hf_agent.service
+%exclude %{_libdir}/systemd/user/bluetooth-map-agent.service
 %else
 %{_bindir}/bluetooth-ag-agent
 %{_bindir}/bluetooth-map-agent
