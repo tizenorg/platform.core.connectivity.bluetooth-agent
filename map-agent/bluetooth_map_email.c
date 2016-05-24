@@ -186,13 +186,14 @@ static void __bt_email_subscription_callback(GDBusConnection *connection,
 		}
 
 		handle = _bt_add_id(mailid, BT_MAP_ID_EMAIL);
-		if (mailbox->mailbox_type == EMAIL_MAILBOX_TYPE_INBOX) {
-			_bt_mns_client_event_notify("NewMessage", handle,
-								"TELECOM/MSG/INBOX", "",
-								"EMAIL");
-		}
-		if (mailbox)
+		if (mailbox) {
+			if (mailbox->mailbox_type == EMAIL_MAILBOX_TYPE_INBOX) {
+				_bt_mns_client_event_notify("NewMessage", handle,
+						"TELECOM/MSG/INBOX", "",
+						"EMAIL");
+			}
 			email_free_mailbox(&mailbox, 1);
+		}
 
 	} else if (subtype == NOTI_MAIL_MOVE_FINISH) {
 		/* Received values from Signal*/
@@ -281,10 +282,9 @@ static void __bt_email_subscription_callback(GDBusConnection *connection,
 				mail_ids = g_list_next(mail_ids);
 			}
 		}
-		if (mailbox_to)
-			email_free_mailbox(&mailbox_to, 1);
-		if (mailbox_from)
-			email_free_mailbox(&mailbox_from, 1);
+
+		email_free_mailbox(&mailbox_to, 1);
+		email_free_mailbox(&mailbox_from, 1);
 	}
 }
 
@@ -463,7 +463,10 @@ static message_info_t *__bt_email_info_get(email_mail_list_item_t *email_struct,
 		email_info->recipient_name = g_strdup(mail_data->alias_recipient);
 	}
 
-	email_info->recipient_addressing = g_strdup(mail_data->email_address_recipient);
+	if (mail_data->email_address_recipient) {
+		g_free(email_info->recipient_addressing);
+		email_info->recipient_addressing = g_strdup(mail_data->email_address_recipient);
+	}
 
 	return email_info;
 }

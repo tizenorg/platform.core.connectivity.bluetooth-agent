@@ -2265,7 +2265,6 @@ void _bt_ag_set_headset_state(bt_ag_info_t *hs, hs_state_t state)
 			__bt_ag_stop_sco_server(hs);
 
 		g_free(hs->remote_addr);
-		g_free(hs->slc);
 		g_free(hs);
 		break;
 
