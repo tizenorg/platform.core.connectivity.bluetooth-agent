@@ -472,7 +472,7 @@ static bt_hfp_agent_error_t __bt_hfp_modify_indicator(
 	bt_ag_indicators_t *hf_ind = NULL;
 	int i;
 #ifdef TIZEN_MEDIA_ENHANCE
-	if(g_strcmp0(indicator_name,
+	if (g_strcmp0(indicator_name,
 		HFP_AGENT_CALLSETUP_INDICATOR) == 0)
 		_bt_ag_agent_check_transport_state();
 #endif
@@ -1522,7 +1522,7 @@ void _bt_hfp_release_all_calls_by_sender(const char *sender)
 	GSList *temp_list = existing_call_list;
 	GSList *next_list;
 
-	if(!sender)
+	if (!sender)
 		return;
 
 	DBG("sender [%s]", sender);
@@ -2111,7 +2111,7 @@ void _bt_hfp_get_imsi_reply(char *mcc, char *mnc, char *msin, void *t_device)
 		_bt_hfp_get_imsi_rsp(t_device, mcc, mnc, msin,
 				HFP_STATE_MNGR_ERR_NONE);
 	else
-		_bt_hfp_get_imsi_rsp(t_device,NULL,NULL,NULL,
+		_bt_hfp_get_imsi_rsp(t_device, NULL, NULL, NULL,
 				HFP_STATE_MNGR_ERR_NOT_ALLOWED);
 }
 

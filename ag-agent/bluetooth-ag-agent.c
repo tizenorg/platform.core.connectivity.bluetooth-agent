@@ -1314,7 +1314,7 @@ void _bt_ag_agent_get_imsi(void *device)
 {
 	FN_START;
 	TelSimImsiInfo_t imsi;
-	memset (&imsi, 0, sizeof(TelSimImsiInfo_t));
+	memset(&imsi, 0, sizeof(TelSimImsiInfo_t));
 	if (tel_get_sim_imsi(tapi_handle, &imsi) != TAPI_API_SUCCESS) {
 		ERR("tel_get_sim_imsi failed");
 		goto fail;
@@ -1535,8 +1535,8 @@ static gboolean __bt_ag_codec_negotiation_finished(gpointer user_data)
 		DBG("Codec negotiation finished");
 		__bt_ag_sco_connect(data->bt_ag_info);
 		__bt_ag_codec_negotiation_info_reset(data->bt_ag_info, FALSE);
-		g_free (data->codec_status);
-		g_free (data);
+		g_free(data->codec_status);
+		g_free(data);
 		return TRUE;
 	} else if (g_strcmp0(data->codec_status, "timeout") == 0) {
 		DBG("Timeout is occured in codec negotiation");
@@ -1548,8 +1548,8 @@ static gboolean __bt_ag_codec_negotiation_finished(gpointer user_data)
 		__bt_ag_sco_connect(data->bt_ag_info);
 		__bt_ag_codec_negotiation_info_reset(data->bt_ag_info, FALSE);
 	}
-	g_free (data->codec_status);
-	g_free (data);
+	g_free(data->codec_status);
+	g_free(data);
 
 	return FALSE;
 }
@@ -1663,7 +1663,7 @@ static bt_hfp_agent_error_t __bt_hfp_send_bcs_command(bt_ag_info_t *hs,
 	hs->codec_info.final_codec = codec;
 
 	data->bt_ag_info = hs;
-	data->codec_status = g_strdup ("timeout");
+	data->codec_status = g_strdup("timeout");
 
 	hs->codec_info.nego_timer = g_timeout_add_seconds(
 			HFP_CODEC_NEGOTIATION_TIMEOUT,
@@ -1808,7 +1808,7 @@ static int __bt_hfp_codec_selection(bt_ag_info_t *hs, const char *buf)
 		err = HFP_STATE_MNGR_ERR_AG_FAILURE;
 
 	data->bt_ag_info = hs;
-	data->codec_status = g_strdup ("finish");
+	data->codec_status = g_strdup("finish");
 	_bt_ag_send_response(hs, err);
 	__bt_ag_codec_negotiation_finished(data);
 
@@ -2261,7 +2261,7 @@ void _bt_ag_set_headset_state(bt_ag_info_t *hs, hs_state_t state)
 
 		/* Since SCO server is binded on remote address */
 		/* Need to stop SCO server once heasdet disconencted*/
-		if(hs->sco_server_started)
+		if (hs->sco_server_started)
 			__bt_ag_stop_sco_server(hs);
 
 		g_free(hs->remote_addr);
@@ -2365,7 +2365,7 @@ void __bt_ag_agent_print_at_buffer(char *message, const char *buf)
 
 	strncpy(s, buf, MAX_BUFFER_SIZE - 1);
 
-	for (i=0; i<num_of_secure_command; i++) {
+	for (i = 0; i < num_of_secure_command; i++) {
 		if (strstr(buf, secure_command[i])) {
 			is_security_command = TRUE;
 			break;
@@ -2677,8 +2677,7 @@ static gboolean __bt_ag_agent_connection(gint32 fd, const gchar *device_path,
 		DBG("HSP connection completed");
 		_bt_ag_set_headset_state(bt_ag_info,
 						HEADSET_STATE_CONNECTED);
-	}
-	else {
+	} else {
 		DBG("HFP connection connecting");
 		_bt_ag_set_headset_state(bt_ag_info,
 						HEADSET_STATE_CONNECTING);
@@ -2734,7 +2733,7 @@ static gboolean __bt_ag_agent_is_device_vr_blacklisted(const char *lap_addr)
 		return FALSE;
 	}
 
-	token= strtok_r(buffer, "=", &saveptr);
+	token = strtok_r(buffer, "=", &saveptr);
 	if (token == NULL) {
 		g_free(buffer);
 		return FALSE;
@@ -3081,7 +3080,7 @@ static void __bt_ag_agent_method(GDBusConnection *connection,
 			for (l = active_devices; l; l = l->next) {
 				bt_ag_info_t *data = l->data;
 
-				if(data->state == HEADSET_STATE_ON_CALL) {
+				if (data->state == HEADSET_STATE_ON_CALL) {
 					__bt_ag_close_sco(data);
 					_bt_ag_set_headset_state(data,
 						HEADSET_STATE_CONNECTED);
@@ -3138,11 +3137,11 @@ static void __bt_ag_agent_method(GDBusConnection *connection,
 		for (l = active_devices; l; l = l->next) {
 			bt_ag_info_t *data = l->data;
 
-			if(data->state == HEADSET_STATE_CONNECTED)
+			if (data->state == HEADSET_STATE_CONNECTED)
 				is_connected = TRUE;
 		}
 		DBG("is_connected : %s",
-				is_connected ? "Connected":"Disconnected");
+				is_connected ? "Connected" : "Disconnected");
 
 		g_dbus_method_invocation_return_value(invocation,
 				g_variant_new("(b)", is_connected));
@@ -3162,7 +3161,7 @@ static void __bt_ag_agent_method(GDBusConnection *connection,
 		for (l = active_devices; l; l = l->next) {
 			bt_ag_info_t *data = l->data;
 
-			if(data->state >= HEADSET_STATE_CONNECTED)
+			if (data->state >= HEADSET_STATE_CONNECTED)
 				_bt_ag_send_at(data, "\r\nRING\r\n");
 		}
 
@@ -3197,7 +3196,7 @@ static void __bt_ag_agent_method(GDBusConnection *connection,
 #ifndef __TIZEN_OPEN__
 #ifdef MDM_PHASE_2
 		int mode;
-		if ( slconn && FALSE == slconn->is_voice_recognition_running &&
+		if (slconn && FALSE == slconn->is_voice_recognition_running &&
 				mdm_get_service() == MDM_RESULT_SUCCESS) {
 			mode = mdm_get_allow_bluetooth_outgoing_call();
 			mdm_release_service();
@@ -3272,7 +3271,7 @@ static void __bt_ag_agent_method(GDBusConnection *connection,
 		for (l = active_devices; l; l = l->next) {
 			bt_ag_info_t *data = l->data;
 
-			if(data->state > HEADSET_STATE_CONNECTED) {
+			if (data->state > HEADSET_STATE_CONNECTED) {
 				__bt_ag_close_sco(data);
 				_bt_ag_set_headset_state(data,
 					HEADSET_STATE_CONNECTED);
@@ -3287,10 +3286,10 @@ static void __bt_ag_agent_method(GDBusConnection *connection,
 		for (l = active_devices; l; l = l->next) {
 			bt_ag_info_t *data = l->data;
 
-			if(data->state == HEADSET_STATE_ON_CALL)
+			if (data->state == HEADSET_STATE_ON_CALL)
 				is_playing = TRUE;
 		}
-		DBG("is_playing : %s", is_playing ? "Playing":"Not Playing");
+		DBG("is_playing : %s", is_playing ? "Playing" : "Not Playing");
 
 		g_dbus_method_invocation_return_value(invocation,
 				g_variant_new("(b)", is_playing));
@@ -3404,7 +3403,7 @@ static void __bt_ag_agent_method(GDBusConnection *connection,
 		}
 
 		g_variant_get(parameters, "(&s)", &cmd);
-		if (cmd == NULL){
+		if (cmd == NULL) {
 			ret = BT_HFP_AGENT_ERROR_INVALID_PARAM;
 			goto fail;
 		}
@@ -3885,7 +3884,7 @@ static void  __bt_ag_agent_tel_cb(TapiHandle *handle,
 	g_free(subscriber_number);
 }
 
-static void __bt_ag_agent_on_noti_sim_status (TapiHandle *handle,
+static void __bt_ag_agent_on_noti_sim_status(TapiHandle *handle,
 		const char *noti_id, void *data, void *user_data)
 {
 	TelSimCardStatus_t *status = data;
@@ -3902,7 +3901,7 @@ static void __bt_ag_agent_on_noti_sim_status (TapiHandle *handle,
 	}
 }
 
-static void __bt_ag_agent_reg_sim_event (TapiHandle *handle, void *user_data)
+static void __bt_ag_agent_reg_sim_event(TapiHandle *handle, void *user_data)
 {
 	int ret;
 	ret = tel_register_noti_event(handle, TAPI_NOTI_SIM_STATUS,
@@ -3912,7 +3911,7 @@ static void __bt_ag_agent_reg_sim_event (TapiHandle *handle, void *user_data)
 		ERR("event register failed(%d)", ret);
 }
 
-static void __bt_ag_agent_dereg_sim_event (TapiHandle *handle)
+static void __bt_ag_agent_dereg_sim_event(TapiHandle *handle)
 {
 	int ret;
 	ret = tel_deregister_noti_event(handle, TAPI_NOTI_SIM_STATUS);
@@ -4060,7 +4059,7 @@ static void __bt_ag_agent_dbus_deinit(void)
 		sco_owner = NULL;
 
 		g_object_unref(ag_dbus_conn);
-		ag_dbus_conn= NULL;
+		ag_dbus_conn = NULL;
 	}
 	return;
 }
@@ -4256,7 +4255,7 @@ static void __bt_ag_agent_dbus_init(void)
 		return;
 	}
 
-	if(!__bt_ag_agent_get_adapter_path(ag_dbus_conn , NULL)) {
+	if (!__bt_ag_agent_get_adapter_path(ag_dbus_conn , NULL)) {
 
 		gchar *path = g_strdup(BT_AG_AGENT_OBJECT_PATH);
 		__bt_ag_agent_register(path, hfp_ver,
@@ -4312,7 +4311,8 @@ static uint32_t __bt_ag_agent_get_ag_features(void)
 	return ag_features;
 }
 
-void *__bt_ag_agent_telephony_init(void *arg) {
+void *__bt_ag_agent_telephony_init(void *arg)
+{
 
 	int tapi_result;
 	uint32_t ag_features = *((uint32_t *)arg);

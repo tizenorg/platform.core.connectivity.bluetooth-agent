@@ -483,7 +483,7 @@ static void __hf_agent_method(GDBusConnection *connection,
 				g_variant_new("(i)", sco_audio_connected));
 	} else if (g_strcmp0(method_name, "IsHfConnected") == 0) {
 		DBG("Going to call IsHfConnected");
-		INFO("is_hf_connected : %s", is_hf_connected ? "Connected":"Disconnected");
+		INFO("is_hf_connected : %s", is_hf_connected ? "Connected" : "Disconnected");
 
 		g_dbus_method_invocation_return_value(context,
 				g_variant_new("(b)", is_hf_connected));
@@ -1090,7 +1090,8 @@ static int __bt_hf_agent_handle_ccwa(bt_hf_agent_info_t *bt_hf_info,
 	return 0;
 }
 
-static GSList *__bt_hf_prepare_call_list(const char *buf) {
+static GSList *__bt_hf_prepare_call_list(const char *buf)
+{
 	GSList *call_list = NULL;
 	char *str = NULL;
 	char *ptr = NULL;
@@ -2553,7 +2554,7 @@ static gboolean __bt_establish_service_level_conn(bt_hf_agent_info_t *bt_hf_info
 	snprintf(cmd_buf, sizeof(cmd_buf), BT_HF_FEATURES, feature);
 	ret = __bt_hf_send_and_read(bt_hf_info, cmd_buf, buf,
 				strlen(cmd_buf));
-	if (!ret )
+	if (!ret)
 		return FALSE;
 
 	buf_ptr = strstr(buf, "\r\n+BRSF:");

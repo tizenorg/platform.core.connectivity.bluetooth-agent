@@ -823,7 +823,7 @@ static char *__bt_get_truncated_utf8_string(char *src)
 		while (count > 0 && ((i + count) < sizeof(dest))) {
 			dest[i++] = *p;
 			p++;
-			count --;
+			count--;
 		}
 		p = next;
 	}

@@ -1305,7 +1305,7 @@ int _bt_hfp_get_imsi_rsp(void *t_device,
 {
 	if (err == (bt_hfp_agent_error_t)HFP_STATE_MNGR_ERR_NONE)
 		_bt_ag_send_foreach_headset(active_devices, __bt_hfp_cmp,
-				"\r\n%s%s%s\r\n", mcc,mnc,msin);
+				"\r\n%s%s%s\r\n", mcc, mnc, msin);
 	return _bt_ag_send_response(t_device, err);
 }
 

@@ -303,7 +303,7 @@ typedef struct {
 
 	GDBusMethodInvocation *context;
 	char *path;
-}bt_hf_agent_info_t;
+} bt_hf_agent_info_t;
 
 typedef struct {
 	int id;

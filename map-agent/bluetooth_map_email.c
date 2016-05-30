@@ -80,7 +80,7 @@ static void __bt_map_parse_moved_mails(char *inbuf, int *from_box_id,
 	gchar **outer_tok;
 	char delimiter[2] = { 0x01, 0x00 };
 	outer_tok = g_strsplit_set(inbuf, delimiter, -1);
-	if (outer_tok == NULL ) {
+	if (outer_tok == NULL) {
 		ERR("outer_tok == NULL");
 		return;
 	}
