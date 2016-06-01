@@ -3480,7 +3480,7 @@ static gboolean __bt_ag_register_profile_methods(void)
 	FN_START;
 	GError *error = NULL;
 	guint owner_id;
-	GDBusNodeInfo *node_info;
+	GDBusNodeInfo *node_info = NULL;
 	gchar *path;
 
 	owner_id = g_bus_own_name(G_BUS_TYPE_SYSTEM,
@@ -3507,6 +3507,7 @@ static gboolean __bt_ag_register_profile_methods(void)
 		ERR("Failed to register: %s", error->message);
 		g_error_free(error);
 		g_free(path);
+		g_dbus_node_info_unref(node_info);
 		return FALSE;
 	}
 	g_free(path);
@@ -3524,9 +3525,11 @@ static gboolean __bt_ag_register_profile_methods(void)
 		ERR("Failed to register: %s", error->message);
 		g_error_free(error);
 		g_free(path);
+		g_dbus_node_info_unref(node_info);
 		return FALSE;
 	}
 	g_free(path);
+	g_dbus_node_info_unref(node_info);
 
 	node_info = __bt_ag_create_method_node_info
 				(ag_agent_app_introspection_xml);
@@ -3544,9 +3547,11 @@ static gboolean __bt_ag_register_profile_methods(void)
 		ERR("Failed to register: %s", error->message);
 		g_error_free(error);
 		g_free(path);
+		g_dbus_node_info_unref(node_info);
 		return FALSE;
 	}
 	g_free(path);
+	g_dbus_node_info_unref(node_info);
 
 	FN_END;
 	return TRUE;
