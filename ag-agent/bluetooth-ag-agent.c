@@ -1950,6 +1950,7 @@ static int __bt_ag_sco_connect(bt_ag_info_t *hs)
 	if (err < 0 && !(errno == EINPROGRESS || errno == EAGAIN)) {
 		ERR("ERROR: sco socket connect failed : %d", err);
 		ERR("Close SCO skt");
+		g_io_channel_unref(io);
 		close(sco_skt);
 		return BT_HFP_AGENT_ERROR_INTERNAL;
 	}
