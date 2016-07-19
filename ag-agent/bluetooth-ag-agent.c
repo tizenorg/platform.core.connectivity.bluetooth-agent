@@ -1933,6 +1933,7 @@ static int __bt_ag_sco_connect(bt_ag_info_t *hs)
 		if (err < 0) {
 			ERR("ERROR: sco socket set socket option failed");
 			ERR("Close SCO skt");
+			g_io_channel_unref(io);
 			close(sco_skt);
 			return BT_HFP_AGENT_ERROR_INTERNAL;
 		}
